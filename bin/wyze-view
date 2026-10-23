@@ -1,0 +1,3 @@
+#!/bin/sh
+cd /mnt/ydrive/wyze-view || exit 1
+exec python3 -m wyze_view "$@"

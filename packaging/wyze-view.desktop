@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Wyze View
+Comment=Live Wyze camera multi-view
+Exec=/mnt/ydrive/wyze-view/bin/wyze-view
+Icon=camera-web
+Terminal=false
+Categories=AudioVideo;Video;
