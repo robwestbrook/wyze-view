@@ -41,9 +41,15 @@ class WyzeViewApp(Gtk.Application):
             )
             return
         action = Gio.SimpleAction.new("quit", None)
-        action.connect("activate", lambda *_: self.quit())
+        action.connect("activate", self._on_quit)
         self.add_action(action)
         self.set_accels_for_action("app.quit", ["<Primary>q"])
+
+    def _on_quit(self, *_args) -> None:
+        if self.window is not None:
+            self.window.close()
+        else:
+            self.quit()
 
     def do_activate(self) -> None:
         if self.window is None:

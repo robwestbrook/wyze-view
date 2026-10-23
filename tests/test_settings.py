@@ -35,6 +35,12 @@ def test_save_round_trip_with_restricted_permissions(tmp_path):
     assert stat.S_IMODE(cfg.parent.stat().st_mode) == 0o700
 
 
+def test_malformed_file_returns_defaults(tmp_path):
+    cfg = tmp_path / "settings.toml"
+    cfg.write_text("this is = = not toml\n")
+    assert load_settings(cfg) == Settings()
+
+
 def test_invalid_values_are_ignored(tmp_path):
     cfg = tmp_path / "settings.toml"
     cfg.write_text('grid_columns = 9\nwindow_width = "wide"\n')

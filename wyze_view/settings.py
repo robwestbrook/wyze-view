@@ -25,7 +25,10 @@ def load_settings(path: Path = DEFAULT_SETTINGS) -> Settings:
     if not path.exists():
         return settings
 
-    raw = tomllib.loads(path.read_text())
+    try:
+        raw = tomllib.loads(path.read_text())
+    except (tomllib.TOMLDecodeError, OSError, UnicodeDecodeError):
+        return settings
     if isinstance(raw.get("snapshot_dir"), str):
         settings.snapshot_dir = Path(raw["snapshot_dir"]).expanduser()
     for field in ("start_fullscreen", "unmute_on_enlarge", "autostart"):

@@ -99,9 +99,13 @@ def compose_rtsp_url(host: str, port: int, user: str, password: str, path: str) 
 
 def split_rtsp_url(url: str) -> dict:
     parts = urlsplit(url)
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
     return {
         "host": parts.hostname or "",
-        "port": parts.port or 554,
+        "port": port or 554,
         "user": unquote(parts.username or ""),
         "password": unquote(parts.password or ""),
         "path": parts.path or "/",

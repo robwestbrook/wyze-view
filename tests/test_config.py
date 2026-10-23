@@ -116,6 +116,11 @@ def test_split_rtsp_url_decodes_credentials():
     }
 
 
+def test_split_rtsp_url_falls_back_on_bad_port():
+    parts = split_rtsp_url("rtsp://u:p@host:abc/x")
+    assert parts["port"] == 554
+
+
 def test_test_camera_reports_missing_ffprobe(tmp_path, monkeypatch):
     monkeypatch.setattr("wyze_view.config.shutil.which", lambda _: None)
     ok, detail = test_camera(Camera("A", "rtsp://u:p@1.2.3.4/x"))

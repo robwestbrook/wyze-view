@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import tempfile
+import threading
 import tomllib
 from datetime import datetime
 from pathlib import Path
@@ -31,12 +32,16 @@ AUTOSTART_CONTENT = (
 )
 
 
-def apply_autostart(enabled: bool) -> None:
-    if enabled:
-        AUTOSTART_DESKTOP.parent.mkdir(parents=True, exist_ok=True)
-        AUTOSTART_DESKTOP.write_text(AUTOSTART_CONTENT)
-    else:
-        AUTOSTART_DESKTOP.unlink(missing_ok=True)
+def apply_autostart(enabled: bool) -> str | None:
+    try:
+        if enabled:
+            AUTOSTART_DESKTOP.parent.mkdir(parents=True, exist_ok=True)
+            AUTOSTART_DESKTOP.write_text(AUTOSTART_CONTENT)
+        else:
+            AUTOSTART_DESKTOP.unlink(missing_ok=True)
+    except OSError as exc:
+        return str(exc)
+    return None
 
 
 # mpv's X11 video output creates a child X window inside each tile and selects
@@ -128,6 +133,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._tmp = tempfile.TemporaryDirectory(prefix="wyze-view-")
         self._xdisplay = _X11.XOpenDisplay(None)
         self._ignored_children: dict[int, int] = {}
+        self._torn_down = False
 
         header = Gtk.HeaderBar()
         header.set_show_close_button(True)
@@ -276,7 +282,9 @@ class MainWindow(Gtk.ApplicationWindow):
         def on_save(settings) -> None:
             self.settings = settings
             save_settings(settings, self.get_application().settings_path)
-            apply_autostart(settings.autostart)
+            error = apply_autostart(settings.autostart)
+            if error:
+                self._set_status(f"Autostart: {error}")
             self._layout()
 
         PreferencesDialog(self, self.settings, on_save).run_and_save()
@@ -338,6 +346,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self._set_status("No cameras configured")
 
     def _on_destroy(self, _widget) -> None:
+        if self._torn_down:
+            return
+        self._torn_down = True
         for player in self.players.values():
             player.stop()
         self.players.clear()
@@ -505,12 +516,25 @@ class MainWindow(Gtk.ApplicationWindow):
                 else:
                     player.set_muted(True)
                     player.set_paused(True)
+            self._probe_async(name)
+
+    def _probe_async(self, name: str) -> None:
+        player = self.players.get(name)
+        if player is None:
+            return
+
+        def worker() -> None:
             info = player.info()
-            if info["width"]:
-                self.tiles[name].set_tooltip_text(
-                    f"{name} · {info['width']}x{info['height']} · "
-                    f"{info['fps']:.0f} fps"
-                )
+            GLib.idle_add(self._apply_info, name, info)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_info(self, name: str, info: dict) -> bool:
+        if name in self.tiles and info.get("width"):
+            self.tiles[name].set_tooltip_text(
+                f"{name} · {info['width']}x{info['height']} · {info['fps']:.0f} fps"
+            )
+        return False
 
     def _on_tile_click(self, _widget, event, name: str) -> bool:
         if event.button != 1:
