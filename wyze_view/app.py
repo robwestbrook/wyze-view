@@ -150,6 +150,8 @@ class MainWindow(Gtk.ApplicationWindow):
         bar = Gtk.MenuBar()
         file_item = Gtk.MenuItem(label="File")
         file_menu = Gtk.Menu()
+        file_menu.append(self._menu_item("Add Camera…", "manage-cameras"))
+        file_menu.append(self._menu_item("Manage Cameras…", "manage-cameras"))
         file_menu.append(self._menu_item("Reload", "reload"))
         file_menu.append(Gtk.SeparatorMenuItem())
         file_menu.append(self._menu_item("Quit", "app.quit"))
@@ -194,6 +196,28 @@ class MainWindow(Gtk.ApplicationWindow):
             self.get_application().set_accels_for_action(
                 f"win.{name}", [accel if len(accel) > 1 else f"<Primary>{accel}"]
             )
+
+        action = Gio.SimpleAction.new("manage-cameras", None)
+        action.connect("activate", lambda *_: self._manage_cameras())
+        self.add_action(action)
+        self.get_application().set_accels_for_action(
+            "win.manage-cameras", ["<Primary>n"]
+        )
+
+    def _manage_cameras(self) -> None:
+        from .dialogs.camera_manager import CameraManagerDialog
+
+        def on_save(cameras: list[Camera]) -> None:
+            from .config import save_cameras
+
+            try:
+                save_cameras(cameras, self.config_path)
+            except OSError as exc:
+                self._set_status(f"Could not save cameras: {exc}")
+                return
+            self.reload()
+
+        CameraManagerDialog(self, self.cameras, on_save).run()
 
     def _set_status(self, text: str) -> None:
         self.status.set_text(text)
