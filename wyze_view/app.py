@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import tomllib
 from datetime import datetime
 from pathlib import Path
 
@@ -13,12 +14,22 @@ from gi.repository import Gdk, GdkX11, GLib, Gtk  # noqa: F401 - registers X11Wi
 from .config import Camera, load_cameras
 from .grid import grid_dims, grid_position
 from .player import Player
-from .util import snapshot_path
+from .util import sanitize_name, snapshot_path
 
 CSS = b"""
 .tile { background-color: #000000; }
 .status { padding: 4px 8px; }
+headerbar { padding: 0; }
+headerbar button { padding: 4px 0; min-width: 0; }
 """
+
+
+class _Fixed(Gtk.Fixed):
+    def do_get_preferred_width(self):
+        return 1, 1
+
+    def do_get_preferred_height(self):
+        return 1, 1
 
 
 class MainWindow(Gtk.Window):
@@ -51,7 +62,7 @@ class MainWindow(Gtk.Window):
         self.status.set_xalign(0.0)
         self.status.get_style_context().add_class("status")
 
-        self.fixed = Gtk.Fixed()
+        self.fixed = _Fixed()
         self._last_alloc = (0, 0)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -77,6 +88,12 @@ class MainWindow(Gtk.Window):
         self.status.set_text(text)
 
     def reload(self) -> None:
+        try:
+            cameras = load_cameras(self.config_path)
+        except (tomllib.TOMLDecodeError, OSError) as exc:
+            self._set_status(f"Config error: {exc}")
+            return
+
         for player in self.players.values():
             player.stop()
         self.players.clear()
@@ -86,7 +103,7 @@ class MainWindow(Gtk.Window):
         for child in self.fixed.get_children():
             self.fixed.remove(child)
 
-        self.cameras = load_cameras(self.config_path)
+        self.cameras = cameras
         if not self.cameras:
             self._set_status(f"No cameras configured in {self.config_path}")
             return
@@ -109,7 +126,7 @@ class MainWindow(Gtk.Window):
         size = (allocation.width, allocation.height)
         if size != self._last_alloc:
             self._last_alloc = size
-            self._layout()
+            GLib.idle_add(self._layout)
         return False
 
     def _layout(self) -> None:
@@ -145,8 +162,10 @@ class MainWindow(Gtk.Window):
             GLib.timeout_add(100, self._start_players)
             return False
 
-        for camera, window in zip(pending, windows):
-            socket_path = Path(self._tmp.name) / f"{camera.name}.sock"
+        for index, (camera, window) in enumerate(zip(pending, windows)):
+            socket_path = (
+                Path(self._tmp.name) / f"{index}-{sanitize_name(camera.name)}.sock"
+            )
             player = Player(
                 camera,
                 window.get_xid(),
