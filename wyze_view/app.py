@@ -24,6 +24,20 @@ headerbar { padding: 0; }
 headerbar button { padding: 4px 0; min-width: 0; }
 """
 
+AUTOSTART_DESKTOP = Path.home() / ".config" / "autostart" / "wyze-view.desktop"
+AUTOSTART_CONTENT = (
+    "[Desktop Entry]\nType=Application\nName=Wyze View\n"
+    "Exec=wyze-view\nIcon=wyze-view\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
+)
+
+
+def apply_autostart(enabled: bool) -> None:
+    if enabled:
+        AUTOSTART_DESKTOP.parent.mkdir(parents=True, exist_ok=True)
+        AUTOSTART_DESKTOP.write_text(AUTOSTART_CONTENT)
+    else:
+        AUTOSTART_DESKTOP.unlink(missing_ok=True)
+
 
 # mpv's X11 video output creates a child X window inside each tile and selects
 # button events on it, so the GTK EventBox never sees the click. Clearing that
@@ -130,6 +144,9 @@ class MainWindow(Gtk.ApplicationWindow):
         box.pack_start(self.status, False, False, 0)
         self.add(box)
 
+        if settings.start_fullscreen:
+            self.fullscreen()
+
         provider = Gtk.CssProvider()
         provider.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(
@@ -154,6 +171,7 @@ class MainWindow(Gtk.ApplicationWindow):
         file_menu.append(self._menu_item("Manage Cameras…", "manage-cameras"))
         file_menu.append(self._menu_item("Reload", "reload"))
         file_menu.append(Gtk.SeparatorMenuItem())
+        file_menu.append(self._menu_item("Preferences", "preferences"))
         file_menu.append(self._menu_item("Quit", "app.quit"))
         file_item.set_submenu(file_menu)
         bar.append(file_item)
@@ -208,6 +226,25 @@ class MainWindow(Gtk.ApplicationWindow):
             "win.add-camera", ["<Primary>n"]
         )
 
+        action = Gio.SimpleAction.new("preferences", None)
+        action.connect("activate", lambda *_: self._preferences())
+        self.add_action(action)
+        self.get_application().set_accels_for_action(
+            "win.preferences", ["<Primary>p"]
+        )
+
+    def _preferences(self) -> None:
+        from .dialogs.preferences import PreferencesDialog
+        from .settings import save_settings
+
+        def on_save(settings) -> None:
+            self.settings = settings
+            save_settings(settings, self.get_application().settings_path)
+            apply_autostart(settings.autostart)
+            self._layout()
+
+        PreferencesDialog(self, self.settings, on_save).run_and_save()
+
     def _manage_cameras(self, start_add: bool = False) -> None:
         from .dialogs.camera_manager import CameraManagerDialog
 
@@ -227,6 +264,13 @@ class MainWindow(Gtk.ApplicationWindow):
         self.status.set_text(text)
 
     def _on_destroy(self, _widget) -> None:
+        width, height = self.get_size()
+        self.settings.window_width = width
+        self.settings.window_height = height
+        from .settings import save_settings
+
+        save_settings(self.settings, self.get_application().settings_path)
+
         for player in self.players.values():
             player.stop()
         self.players.clear()
@@ -307,6 +351,9 @@ class MainWindow(Gtk.ApplicationWindow):
             return
 
         rows, cols = grid_dims(len(self.cameras))
+        if self.settings.grid_columns:
+            cols = min(self.settings.grid_columns, len(self.cameras))
+            rows = -(-len(self.cameras) // cols)
         cell_w = max(width // max(cols, 1), 1)
         cell_h = max(height // max(rows, 1), 1)
         for index, camera in enumerate(self.cameras):
@@ -404,7 +451,7 @@ class MainWindow(Gtk.ApplicationWindow):
         if not player:
             self._set_status("Camera not ready")
             return
-        directory = Path.home() / "Pictures" / "cameras"
+        directory = self.settings.snapshot_dir
         try:
             directory.mkdir(parents=True, exist_ok=True)
             path = snapshot_path(directory, name, datetime.now())
