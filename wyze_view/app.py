@@ -198,6 +198,13 @@ class MainWindow(Gtk.ApplicationWindow):
         camera_menu.append(self._menu_item("Mute", "mute"))
         camera_item.set_submenu(camera_menu)
         bar.append(camera_item)
+
+        help_item = Gtk.MenuItem(label="Help")
+        help_menu = Gtk.Menu()
+        help_menu.append(self._menu_item("Keyboard Shortcuts", "shortcuts"))
+        help_menu.append(self._menu_item("About", "about"))
+        help_item.set_submenu(help_menu)
+        bar.append(help_item)
         return bar
 
     def _menu_item(self, label: str, action: str) -> Gtk.MenuItem:
@@ -242,6 +249,25 @@ class MainWindow(Gtk.ApplicationWindow):
         self.get_application().set_accels_for_action(
             "win.preferences", ["<Primary>p"]
         )
+
+        for name, handler in (
+            ("shortcuts", lambda *_: self._shortcuts()),
+            ("about", lambda *_: self._about()),
+        ):
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", handler)
+            self.add_action(action)
+        self.get_application().set_accels_for_action("win.shortcuts", ["F1"])
+
+    def _shortcuts(self) -> None:
+        from .dialogs.shortcuts import show_shortcuts
+
+        show_shortcuts(self)
+
+    def _about(self) -> None:
+        from .dialogs.about import show_about
+
+        show_about(self)
 
     def _preferences(self) -> None:
         from .dialogs.preferences import PreferencesDialog
