@@ -50,7 +50,7 @@ input shape is cleared so the tile receives clicks). What changes is the shell
 around it.
 
 ```
-WyzeViewApp(Gtk.Application, id="io.github.<owner>.WyzeView")
+WyzeViewApp(Gtk.Application, id="io.github.robwestbrook.WyzeView")
 └── MainWindow(Gtk.ApplicationWindow)
     ├── Gtk.HeaderBar            title + window controls
     ├── Gtk.MenuBar              File / View / Camera / Help
@@ -74,9 +74,9 @@ New/changed modules:
 
 ## Application shell
 
-- `application_id = "io.github.<owner>.WyzeView"` (exact owner set once the
-  public repo URL is provided). The app id provides single instance: a second
-  launch raises the existing window.
+- `application_id = "io.github.robwestbrook.WyzeView"` (repo
+  `https://github.com/robwestbrook/wyze-view`). The app id provides single
+  instance: a second launch raises the existing window.
 - `__main__.py` keeps `--config` and `--check`; otherwise builds and runs the
   application. `GDK_BACKEND=x11` is set here before GTK initializes.
 
@@ -183,7 +183,7 @@ Autostart writes/removes a user `.desktop` copy; no new mechanism.
   `/usr/bin/wyze-view` → `exec python3 -m wyze_view "$@"`;
   `/usr/share/applications/wyze-view.desktop`;
   `/usr/share/icons/hicolor/256x256/apps/wyze-view.png`;
-  `/usr/share/metainfo/io.github.<owner>.WyzeView.metainfo.xml`;
+  `/usr/share/metainfo/io.github.robwestbrook.WyzeView.metainfo.xml`;
   `/usr/share/man/man1/wyze-view.1`.
 - `Depends`: `python3 (>=3.11)`, `python3-gi`, `gir1.2-gtk-3.0`, `mpv`.
   `Recommends`: `ffmpeg`.
@@ -226,7 +226,8 @@ GUI smoke steps without `xdotool`.
 - **Scope**: this is a large change set; it will be split into several
   implementation tasks in the plan.
 
-## Open items
+## Repository
 
-- Public GitHub URL (owner/repo) to finalize the application id, metainfo, and
-  README links. Placeholder `io.github.<owner>.WyzeView` until provided.
+- Public repo: `https://github.com/robwestbrook/wyze-view` (`origin`).
+- Application id, metainfo id, and README links all use
+  `io.github.robwestbrook.WyzeView` / this URL.
