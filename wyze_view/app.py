@@ -280,12 +280,10 @@ class MainWindow(Gtk.ApplicationWindow):
             player.start()
 
     def _update_status(self) -> None:
-        audio = "none"
-        if self.enlarged and not self.enlarged_muted:
-            audio = self.enlarged
+        audio = self.enlarged if (self.enlarged and not self.enlarged_muted) else "none"
         parts = [f"{len(self.cameras)} cameras", f"{len(self.offline)} offline"]
-        if self.enlarged:
-            parts.append(f"selected: {self.enlarged}")
+        if self.cameras:
+            parts.append(f"selected: {self.cameras[self.selected].name}")
         parts.append(f"audio: {audio}")
         self._set_status(" · ".join(parts))
 
@@ -501,14 +499,14 @@ class MainWindow(Gtk.ApplicationWindow):
             self._enlarge(name)
         return True
 
-    def _on_tile_right_click(self, widget, event, name: str) -> bool:
+    def _on_tile_right_click(self, _widget, event, name: str) -> bool:
         if event.button != 3:
             return False
         menu = Gtk.Menu()
         for label, callback in (
             ("Enlarge", lambda: self._enlarge(name)),
-            ("Snapshot", lambda: self.snapshot()),
-            ("Mute", lambda: self.toggle_mute()),
+            ("Snapshot", lambda: self.snapshot(name)),
+            ("Mute", lambda: self.toggle_mute(name)),
             ("Reconnect", lambda: self._reconnect(name)),
             ("Remove camera", lambda: self._remove_camera(name)),
         ):
@@ -567,8 +565,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self._layout()
         self._update_status()
 
-    def snapshot(self) -> None:
-        name = self.enlarged or (self.cameras[0].name if self.cameras else None)
+    def snapshot(self, name: str | None = None) -> None:
+        name = name or self.enlarged or (self.cameras[0].name if self.cameras else None)
         if not name:
             self._set_status("No camera to snapshot")
             return
@@ -606,16 +604,21 @@ class MainWindow(Gtk.ApplicationWindow):
         dialog.run()
         dialog.destroy()
 
-    def toggle_mute(self) -> None:
-        if not self.enlarged:
+    def toggle_mute(self, name: str | None = None) -> None:
+        name = name or self.enlarged
+        if not name:
             self._set_status("Enlarge a camera to control audio")
             return
-        player = self.players.get(self.enlarged)
+        player = self.players.get(name)
         if not player:
             return
-        self.enlarged_muted = not self.enlarged_muted
-        player.set_muted(self.enlarged_muted)
-        self._set_status("Muted" if self.enlarged_muted else "Audio on")
+        if name == self.enlarged:
+            self.enlarged_muted = not self.enlarged_muted
+            player.set_muted(self.enlarged_muted)
+            self._update_status()
+        else:
+            player.set_muted(True)
+            self._set_status(f"{name}: muted")
 
     def toggle_fullscreen(self) -> None:
         window = self.get_window()
