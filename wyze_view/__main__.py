@@ -4,6 +4,7 @@ import argparse
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 from .config import DEFAULT_CONFIG, load_cameras
@@ -11,7 +12,11 @@ from .util import redact_url
 
 
 def check(config_path: Path) -> int:
-    cameras = load_cameras(config_path)
+    try:
+        cameras = load_cameras(config_path)
+    except (tomllib.TOMLDecodeError, OSError, UnicodeDecodeError) as exc:
+        print(f"Config error: {exc}")
+        return 1
     if not cameras:
         print(f"No cameras in {config_path}")
         return 1

@@ -80,17 +80,24 @@ class MainWindow(Gtk.Window):
 
         self.fixed.connect("size-allocate", self._on_fixed_allocate)
         self.connect("key-press-event", self._on_key)
-        self.connect("destroy", Gtk.main_quit)
+        self.connect("destroy", self._on_destroy)
 
         self.reload()
 
     def _set_status(self, text: str) -> None:
         self.status.set_text(text)
 
+    def _on_destroy(self, _widget) -> None:
+        for player in self.players.values():
+            player.stop()
+        self.players.clear()
+        self._tmp.cleanup()
+        Gtk.main_quit()
+
     def reload(self) -> None:
         try:
             cameras = load_cameras(self.config_path)
-        except (tomllib.TOMLDecodeError, OSError) as exc:
+        except (tomllib.TOMLDecodeError, OSError, UnicodeDecodeError) as exc:
             self._set_status(f"Config error: {exc}")
             return
 

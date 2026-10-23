@@ -57,3 +57,11 @@ def test_check_with_no_cameras_returns_nonzero(tmp_path, capsys):
     cfg = tmp_path / "empty.toml"
     assert cli.check(cfg) == 1
     assert "No cameras" in capsys.readouterr().out
+
+
+def test_check_reports_config_error_without_traceback(tmp_path, capsys):
+    cfg = tmp_path / "cameras.toml"
+    cfg.write_text("[[camera]\nname = broken\n")
+    assert cli.check(cfg) == 1
+    out = capsys.readouterr().out
+    assert "Config error" in out

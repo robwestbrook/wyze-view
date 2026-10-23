@@ -11,6 +11,14 @@ from wyze_view.config import Camera
 from wyze_view.player import Player, backoff_delay, build_mpv_args, ipc_command
 
 
+def _wait_for_socket(sock_path: Path, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not sock_path.exists():
+        if time.monotonic() > deadline:
+            raise TimeoutError("fake mpv server did not start")
+        time.sleep(0.01)
+
+
 def _serve_lines(sock_path: Path, lines: list[bytes]) -> threading.Thread:
     def serve():
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
@@ -24,13 +32,9 @@ def _serve_lines(sock_path: Path, lines: list[bytes]) -> threading.Thread:
                 for line in lines:
                     conn.sendall(line)
 
-    thread = threading.Thread(target=serve)
+    thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    deadline = time.monotonic() + 2
-    while not sock_path.exists():
-        if time.monotonic() > deadline:
-            raise TimeoutError("fake mpv server did not start")
-        time.sleep(0.01)
+    _wait_for_socket(sock_path)
     return thread
 
 
@@ -43,6 +47,7 @@ def test_build_mpv_args_includes_required_flags(tmp_path):
     assert "--rtsp-transport=tcp" in args
     assert "--hwdec=auto-safe" in args
     assert "--mute=yes" in args
+    assert "--idle=yes" not in args
     assert args[-1] == "rtsp://u:p@1.2.3.4/stream0/"
 
 
@@ -66,10 +71,9 @@ def test_ipc_command_sends_json_and_reads_reply(tmp_path):
                 received.update(json.loads(data.split(b"\n", 1)[0]))
                 conn.sendall(b'{"error":"success","data":null,"request_id":1}\n')
 
-    thread = threading.Thread(target=serve)
+    thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    while not sock_path.exists():
-        pass
+    _wait_for_socket(sock_path)
     reply = ipc_command(sock_path, ["set_property", "mute", True])
     thread.join(timeout=2)
     assert received["command"] == ["set_property", "mute", True]

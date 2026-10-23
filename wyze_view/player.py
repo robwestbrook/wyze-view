@@ -25,7 +25,6 @@ def build_mpv_args(xid: int, socket_path: Path, url: str) -> list[str]:
         "--mute=yes",
         "--screenshot-format=jpg",
         "--really-quiet",
-        "--idle=yes",
         "--force-window=yes",
         url,
     ]

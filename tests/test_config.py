@@ -54,6 +54,18 @@ def test_skips_duplicate_names(tmp_path, capsys):
     assert "duplicate" in capsys.readouterr().err
 
 
+def test_skips_duplicate_names_differing_only_by_whitespace(tmp_path, capsys):
+    cfg = tmp_path / "cameras.toml"
+    cfg.write_text(
+        '[[camera]]\nname = "Corner"\nurl = "rtsp://u:p@1.2.3.4/x"\n'
+        '[[camera]]\nname = " Corner "\nurl = "rtsp://u:p@1.2.3.5/x"\n'
+    )
+    cams = load_cameras(cfg)
+    assert len(cams) == 1
+    assert cams[0].name == "Corner"
+    assert "duplicate" in capsys.readouterr().err
+
+
 def test_creates_default_config_with_restricted_permissions(tmp_path):
     cfg = tmp_path / "nested" / "cameras.toml"
     assert load_cameras(cfg) == []

@@ -61,6 +61,7 @@ def load_cameras(path: Path = DEFAULT_CONFIG) -> list[Camera]:
         if not isinstance(name, str) or not name.strip():
             _warn(f"camera #{index}: missing name, skipped")
             continue
+        name = name.strip()
         if not isinstance(url, str) or not url.strip():
             _warn(f"camera '{name}': missing url, skipped")
             continue
@@ -73,7 +74,7 @@ def load_cameras(path: Path = DEFAULT_CONFIG) -> list[Camera]:
         seen.add(name)
         cameras.append(
             Camera(
-                name=name.strip(),
+                name=name,
                 url=url.strip(),
                 sub_url=sub_url.strip() if sub_url else None,
             )
