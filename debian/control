@@ -5,6 +5,7 @@ Maintainer: Rob Westbrook <robwestbrook@users.noreply.github.com>
 Build-Depends: debhelper-compat (= 13), dh-python, pybuild-plugin-pyproject, python3, python3-setuptools
 Standards-Version: 4.6.2
 Rules-Requires-Root: no
+X-Python3-Version: >= 3.11
 
 Package: wyze-view
 Architecture: all
