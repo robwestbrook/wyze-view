@@ -2,7 +2,7 @@
 Type=Application
 Name=Wyze View
 Comment=Live Wyze camera multi-view
-Exec=/mnt/ydrive/wyze-view/bin/wyze-view
-Icon=camera-web
+Exec=wyze-view
+Icon=wyze-view
 Terminal=false
 Categories=AudioVideo;Video;
