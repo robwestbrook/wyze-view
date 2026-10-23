@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import tempfile
 import tomllib
 from datetime import datetime
@@ -24,6 +25,69 @@ headerbar button { padding: 4px 0; min-width: 0; }
 """
 
 
+# mpv's X11 video output creates a child X window inside each tile and selects
+# button events on it, so the GTK EventBox never sees the click. Clearing that
+# child's X input shape lets pointer events fall through to the tile.
+_X11 = ctypes.CDLL("libX11.so.6")
+_Xext = ctypes.CDLL("libXext.so.6")
+_X11.XOpenDisplay.restype = ctypes.c_void_p
+_X11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+_X11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+_X11.XQueryTree.argtypes = [
+    ctypes.c_void_p,
+    ctypes.c_ulong,
+    ctypes.POINTER(ctypes.c_ulong),
+    ctypes.POINTER(ctypes.c_ulong),
+    ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)),
+    ctypes.POINTER(ctypes.c_uint),
+]
+_X11.XFree.argtypes = [ctypes.c_void_p]
+_X11.XFlush.argtypes = [ctypes.c_void_p]
+_Xext.XShapeCombineRectangles.argtypes = [
+    ctypes.c_void_p,
+    ctypes.c_ulong,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_void_p,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+]
+
+_SHAPE_INPUT = 2
+_SHAPE_SET = 0
+_UNSORTED = 0
+
+
+def _first_child(display: int, parent: int) -> int:
+    root = ctypes.c_ulong()
+    parent_ret = ctypes.c_ulong()
+    children = ctypes.POINTER(ctypes.c_ulong)()
+    count = ctypes.c_uint()
+    ok = _X11.XQueryTree(
+        display,
+        ctypes.c_ulong(parent),
+        ctypes.byref(root),
+        ctypes.byref(parent_ret),
+        ctypes.byref(children),
+        ctypes.byref(count),
+    )
+    if not ok or count.value == 0:
+        return 0
+    child = int(children[0])
+    _X11.XFree(children)
+    return child
+
+
+def _ignore_input(display: int, window: int) -> None:
+    _Xext.XShapeCombineRectangles(
+        display, ctypes.c_ulong(window), _SHAPE_INPUT, 0, 0, None, 0,
+        _SHAPE_SET, _UNSORTED,
+    )
+    _X11.XFlush(display)
+
+
 class _Fixed(Gtk.Fixed):
     def do_get_preferred_width(self):
         return 1, 1
@@ -43,6 +107,8 @@ class MainWindow(Gtk.Window):
         self.enlarged: str | None = None
         self.enlarged_muted = False
         self._tmp = tempfile.TemporaryDirectory(prefix="wyze-view-")
+        self._xdisplay = _X11.XOpenDisplay(None)
+        self._ignored_children: dict[int, int] = {}
 
         header = Gtk.HeaderBar()
         header.set_show_close_button(True)
@@ -81,6 +147,7 @@ class MainWindow(Gtk.Window):
         self.fixed.connect("size-allocate", self._on_fixed_allocate)
         self.connect("key-press-event", self._on_key)
         self.connect("destroy", self._on_destroy)
+        GLib.timeout_add(500, self._apply_click_through)
 
         self.reload()
 
@@ -92,6 +159,9 @@ class MainWindow(Gtk.Window):
             player.stop()
         self.players.clear()
         self._tmp.cleanup()
+        if self._xdisplay:
+            _X11.XCloseDisplay(self._xdisplay)
+            self._xdisplay = None
         Gtk.main_quit()
 
     def reload(self) -> None:
@@ -105,6 +175,7 @@ class MainWindow(Gtk.Window):
             player.stop()
         self.players.clear()
         self.tiles.clear()
+        self._ignored_children.clear()
         self.enlarged = None
         self.enlarged_muted = False
         for child in self.fixed.get_children():
@@ -135,6 +206,20 @@ class MainWindow(Gtk.Window):
             self._last_alloc = size
             GLib.idle_add(self._layout)
         return False
+
+    def _apply_click_through(self) -> bool:
+        if not self._xdisplay:
+            return True
+        for tile in self.tiles.values():
+            window = tile.get_window()
+            if window is None:
+                continue
+            parent = window.get_xid()
+            child = _first_child(self._xdisplay, parent)
+            if child and self._ignored_children.get(parent) != child:
+                _ignore_input(self._xdisplay, child)
+                self._ignored_children[parent] = child
+        return True
 
     def _layout(self) -> None:
         if not self.cameras:
