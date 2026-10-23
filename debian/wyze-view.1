@@ -1,0 +1,17 @@
+.TH WYZE-VIEW 1 "2026-10-23" "wyze-view 0.1.0" "User Commands"
+.SH NAME
+wyze-view \- live RTSP multi-view for Wyze cameras
+.SH SYNOPSIS
+.B wyze-view
+[\fB\-\-config\fR \fIPATH\fR] [\fB\-\-check\fR]
+.SH OPTIONS
+.TP
+.B \-\-config \fIPATH\fR
+Use an alternate cameras.toml.
+.TP
+.B \-\-check
+Validate the config and probe each camera with ffprobe, then exit.
+.SH FILES
+.I ~/.config/wyze-view/cameras.toml
+.SH SEE ALSO
+.BR mpv (1)

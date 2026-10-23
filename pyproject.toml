@@ -5,6 +5,16 @@ description = "Live Wyze camera multi-view for the desktop"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.scripts]
+wyze-view = "wyze_view.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["wyze_view", "wyze_view.dialogs"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

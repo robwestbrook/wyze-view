@@ -1,0 +1,10 @@
+packaging/wyze-view.desktop usr/share/applications
+packaging/io.github.robwestbrook.WyzeView.metainfo.xml usr/share/metainfo
+packaging/icons/wyze-view-256.png usr/share/icons/hicolor/256x256/apps/wyze-view.png
+packaging/icons/wyze-view-128.png usr/share/icons/hicolor/128x128/apps/wyze-view.png
+packaging/icons/wyze-view-64.png usr/share/icons/hicolor/64x64/apps/wyze-view.png
+packaging/icons/wyze-view-48.png usr/share/icons/hicolor/48x48/apps/wyze-view.png
+packaging/icons/wyze-view-32.png usr/share/icons/hicolor/32x32/apps/wyze-view.png
+packaging/icons/wyze-view-24.png usr/share/icons/hicolor/24x24/apps/wyze-view.png
+packaging/icons/wyze-view-16.png usr/share/icons/hicolor/16x16/apps/wyze-view.png
+packaging/icons/wyze-view.svg usr/share/icons/hicolor/scalable/apps/wyze-view.svg
