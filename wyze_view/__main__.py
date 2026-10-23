@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 import subprocess
 import sys
 import tomllib
@@ -69,28 +68,31 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         return check(args.config)
 
+    import os
+
+    from .application import preferred_backend
+
+    os.environ.setdefault("GDK_BACKEND", preferred_backend(os.environ.get("XDG_SESSION_TYPE")))
+
     import gi
 
     gi.require_version("Gtk", "3.0")
     from gi.repository import Gtk
 
-    if shutil.which("mpv") is None:
-        dialog = Gtk.MessageDialog(
-            message_type=Gtk.MessageType.ERROR,
-            buttons=Gtk.ButtonsType.CLOSE,
-            text="mpv is required",
+    result = Gtk.init_check(None)
+    ok = result[0] if isinstance(result, tuple) else result
+    if not ok:
+        print(
+            "Wyze View needs X11 or XWayland; pure-Wayland embedding is not "
+            "supported yet.",
+            file=sys.stderr,
         )
-        dialog.format_secondary_text("Install it with: sudo apt install mpv")
-        dialog.run()
-        dialog.destroy()
         return 1
 
-    from .app import MainWindow
+    from .application import WyzeViewApp
 
-    window = MainWindow(args.config)
-    window.show_all()
-    Gtk.main()
-    return 0
+    app = WyzeViewApp(args.config)
+    return app.run([sys.argv[0]])
 
 
 if __name__ == "__main__":

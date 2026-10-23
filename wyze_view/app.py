@@ -10,7 +10,7 @@ import gi
 
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gdk, GdkX11, GLib, Gtk  # noqa: F401 - registers X11Window
+from gi.repository import Gdk, GdkX11, Gio, GLib, Gtk  # noqa: F401 - registers X11Window
 
 from .config import Camera, load_cameras
 from .grid import grid_dims, grid_position
@@ -96,10 +96,12 @@ class _Fixed(Gtk.Fixed):
         return 1, 1
 
 
-class MainWindow(Gtk.Window):
-    def __init__(self, config_path: Path) -> None:
-        super().__init__(title="Wyze View")
-        self.set_default_size(1280, 720)
+class MainWindow(Gtk.ApplicationWindow):
+    def __init__(self, application, config_path: Path, settings) -> None:
+        super().__init__(application=application, title="Wyze View")
+        self.settings = settings
+        self.set_default_size(settings.window_width, settings.window_height)
+        self.set_icon_name("wyze-view")
         self.config_path = config_path
         self.cameras: list[Camera] = []
         self.tiles: dict[str, Gtk.EventBox] = {}
@@ -114,15 +116,6 @@ class MainWindow(Gtk.Window):
         header.set_show_close_button(True)
         header.props.title = "Wyze View"
         self.set_titlebar(header)
-        for label, callback in (
-            ("Reload", self.reload),
-            ("Snapshot", self.snapshot),
-            ("Mute", self.toggle_mute),
-            ("Fullscreen", self.toggle_fullscreen),
-        ):
-            button = Gtk.Button(label=label)
-            button.connect("clicked", lambda _b, cb=callback: cb())
-            header.pack_start(button)
 
         self.status = Gtk.Label(label="")
         self.status.set_xalign(0.0)
@@ -132,6 +125,7 @@ class MainWindow(Gtk.Window):
         self._last_alloc = (0, 0)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.pack_start(self._build_menu_bar(), False, False, 0)
         box.pack_start(self.fixed, True, True, 0)
         box.pack_start(self.status, False, False, 0)
         self.add(box)
@@ -149,7 +143,51 @@ class MainWindow(Gtk.Window):
         self.connect("destroy", self._on_destroy)
         GLib.timeout_add(500, self._apply_click_through)
 
+        self._add_actions()
         self.reload()
+
+    def _build_menu_bar(self) -> Gtk.MenuBar:
+        bar = Gtk.MenuBar()
+        file_item = Gtk.MenuItem(label="File")
+        file_menu = Gtk.Menu()
+        file_menu.append(self._menu_item("Reload", "reload"))
+        file_menu.append(Gtk.SeparatorMenuItem())
+        file_menu.append(self._menu_item("Quit", "app.quit"))
+        file_item.set_submenu(file_menu)
+        bar.append(file_item)
+
+        view_item = Gtk.MenuItem(label="View")
+        view_menu = Gtk.Menu()
+        view_menu.append(self._menu_item("Fullscreen", "fullscreen"))
+        view_item.set_submenu(view_menu)
+        bar.append(view_item)
+
+        camera_item = Gtk.MenuItem(label="Camera")
+        camera_menu = Gtk.Menu()
+        camera_menu.append(self._menu_item("Snapshot", "snapshot"))
+        camera_menu.append(self._menu_item("Mute", "mute"))
+        camera_item.set_submenu(camera_menu)
+        bar.append(camera_item)
+        return bar
+
+    def _menu_item(self, label: str, action: str) -> Gtk.MenuItem:
+        item = Gtk.MenuItem(label=label)
+        item.connect("activate", lambda _w, a=action: self.activate_action(a))
+        return item
+
+    def _add_actions(self) -> None:
+        for name, handler, accel in (
+            ("reload", lambda *_: self.reload(), "r"),
+            ("snapshot", lambda *_: self.snapshot(), "s"),
+            ("mute", lambda *_: self.toggle_mute(), "m"),
+            ("fullscreen", lambda *_: self.toggle_fullscreen(), "F11"),
+        ):
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", handler)
+            self.add_action(action)
+            self.get_application().set_accels_for_action(
+                f"win.{name}", [accel if len(accel) > 1 else f"<Primary>{accel}"]
+            )
 
     def _set_status(self, text: str) -> None:
         self.status.set_text(text)
@@ -162,7 +200,6 @@ class MainWindow(Gtk.Window):
         if self._xdisplay:
             _X11.XCloseDisplay(self._xdisplay)
             self._xdisplay = None
-        Gtk.main_quit()
 
     def reload(self) -> None:
         try:
