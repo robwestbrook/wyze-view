@@ -122,6 +122,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.offline_overlays: dict[str, Gtk.Widget] = {}
         self.offline: set[str] = set()
         self.players: dict[str, Player] = {}
+        self.selected = 0
         self.enlarged: str | None = None
         self.enlarged_muted = False
         self._tmp = tempfile.TemporaryDirectory(prefix="wyze-view-")
@@ -132,6 +133,13 @@ class MainWindow(Gtk.ApplicationWindow):
         header.set_show_close_button(True)
         header.props.title = "Wyze View"
         self.set_titlebar(header)
+
+        self.volume = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
+        self.volume.set_value(100)
+        self.volume.set_size_request(120, -1)
+        self.volume.set_tooltip_text("Volume (enlarged camera)")
+        self.volume.connect("value-changed", self._on_volume)
+        header.pack_end(self.volume)
 
         self.status = Gtk.Label(label="")
         self.status.set_xalign(0.0)
@@ -338,6 +346,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.offline_overlays.clear()
         self.offline.clear()
         self._ignored_children.clear()
+        self.selected = 0
         self.enlarged = None
         self.enlarged_muted = False
         for child in self.fixed.get_children():
@@ -353,6 +362,7 @@ class MainWindow(Gtk.ApplicationWindow):
             tile.get_style_context().add_class("tile")
             tile.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             tile.connect("button-press-event", self._on_tile_click, camera.name)
+            tile.connect("button-press-event", self._on_tile_right_click, camera.name)
             tile.set_size_request(320, 180)
 
             overlay = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -412,10 +422,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.fixed.move(tile, 0, 0)
             return
 
-        rows, cols = grid_dims(len(self.cameras))
-        if self.settings.grid_columns:
-            cols = min(self.settings.grid_columns, len(self.cameras))
-            rows = -(-len(self.cameras) // cols)
+        rows, cols = self._grid_shape()
         cell_w = max(width // max(cols, 1), 1)
         cell_h = max(height // max(rows, 1), 1)
         for index, camera in enumerate(self.cameras):
@@ -424,6 +431,13 @@ class MainWindow(Gtk.ApplicationWindow):
             tile.set_visible(True)
             tile.set_size_request(cell_w, cell_h)
             self.fixed.move(tile, col * cell_w, row * cell_h)
+
+    def _grid_shape(self) -> tuple[int, int]:
+        rows, cols = grid_dims(len(self.cameras))
+        if self.settings.grid_columns:
+            cols = min(self.settings.grid_columns, max(len(self.cameras), 1))
+            rows = -(-len(self.cameras) // cols)
+        return rows, cols
 
     def _start_players(self) -> bool:
         pending = [c for c in self.cameras if c.name not in self.players]
@@ -477,11 +491,49 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_tile_click(self, _widget, event, name: str) -> bool:
         if event.button != 1:
             return False
+        for index, camera in enumerate(self.cameras):
+            if camera.name == name:
+                self.selected = index
+                break
         if self.enlarged == name:
             self._collapse()
         else:
             self._enlarge(name)
         return True
+
+    def _on_tile_right_click(self, widget, event, name: str) -> bool:
+        if event.button != 3:
+            return False
+        menu = Gtk.Menu()
+        for label, callback in (
+            ("Enlarge", lambda: self._enlarge(name)),
+            ("Snapshot", lambda: self.snapshot()),
+            ("Mute", lambda: self.toggle_mute()),
+            ("Reconnect", lambda: self._reconnect(name)),
+            ("Remove camera", lambda: self._remove_camera(name)),
+        ):
+            item = Gtk.MenuItem(label=label)
+            item.connect("activate", lambda _w, cb=callback: cb())
+            menu.append(item)
+        menu.show_all()
+        menu.popup_at_pointer(event)
+        return True
+
+    def _remove_camera(self, name: str) -> None:
+        from .config import save_cameras
+
+        remaining = [c for c in self.cameras if c.name != name]
+        try:
+            save_cameras(remaining, self.config_path)
+        except OSError as exc:
+            self._set_status(f"Could not save cameras: {exc}")
+            return
+        self.reload()
+
+    def _on_volume(self, scale) -> None:
+        player = self.players.get(self.enlarged) if self.enlarged else None
+        if player:
+            player.set_volume(scale.get_value())
 
     def _enlarge(self, name: str) -> None:
         self.enlarged = name
@@ -529,9 +581,30 @@ class MainWindow(Gtk.ApplicationWindow):
             directory.mkdir(parents=True, exist_ok=True)
             path = snapshot_path(directory, name, datetime.now())
             player.snapshot(path)
-            self._set_status(f"Saved {path}")
         except Exception as exc:  # noqa: BLE001 - never raise into the GTK loop
             self._set_status(f"Snapshot failed: {exc}")
+            self._show_snapshot_result("Snapshot failed", str(exc), None)
+            return
+        self._set_status(f"Saved {path}")
+        self._show_snapshot_result("Snapshot saved", str(path), directory)
+
+    def _show_snapshot_result(self, title: str, detail: str, folder) -> None:
+        dialog = Gtk.MessageDialog(
+            transient_for=self, modal=True,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.CLOSE, text=title,
+        )
+        dialog.format_secondary_text(detail)
+        if folder is not None:
+            open_button = dialog.add_button("Open folder", Gtk.ResponseType.ACCEPT)
+            open_button.connect(
+                "clicked",
+                lambda _b: Gtk.show_uri_on_window(
+                    self, folder.as_uri(), Gdk.CURRENT_TIME
+                ),
+            )
+        dialog.run()
+        dialog.destroy()
 
     def toggle_mute(self) -> None:
         if not self.enlarged:
@@ -558,6 +631,28 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._collapse()
             else:
                 self.unfullscreen()
+            return True
+        if key in (Gdk.KEY_Left, Gdk.KEY_Right, Gdk.KEY_Up, Gdk.KEY_Down):
+            if not self.cameras:
+                return True
+            rows, cols = self._grid_shape()
+            col = self.selected % cols
+            row = self.selected // cols
+            if key == Gdk.KEY_Left:
+                col = max(col - 1, 0)
+            elif key == Gdk.KEY_Right:
+                col = min(col + 1, cols - 1)
+            elif key == Gdk.KEY_Up:
+                row = max(row - 1, 0)
+            else:
+                row = min(row + 1, rows - 1)
+            self.selected = min(row * cols + col, len(self.cameras) - 1)
+            self._update_status()
+            return True
+        if key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            if self.cameras:
+                name = self.cameras[self.selected].name
+                self._enlarge(name)
             return True
         if key in (Gdk.KEY_r, Gdk.KEY_R):
             self.reload()
