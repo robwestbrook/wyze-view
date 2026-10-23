@@ -239,3 +239,31 @@ def test_snapshot_raises_when_mpv_reports_error(tmp_path):
     with pytest.raises(RuntimeError):
         player.snapshot(tmp_path / "shot.jpg")
     thread.join(timeout=2)
+
+
+def test_mpv_args_show_camera_name_via_osd(tmp_path):
+    args = build_mpv_args(1234, tmp_path / "a.sock", "rtsp://u:p@1.2.3.4/x", "Front Door")
+    assert "--osd-level=1" in args
+    assert "--osd-playing-msg=Front Door" in args
+
+
+def test_set_volume_sends_volume_property(tmp_path, monkeypatch):
+    cam = Camera("A", "rtsp://u:p@1.2.3.4/x")
+    player = Player(cam, 1, tmp_path / "a.sock")
+    player._proc = types.SimpleNamespace(poll=lambda: None)
+    calls = []
+    monkeypatch.setattr("wyze_view.player.ipc_command",
+                        lambda sock, cmd, timeout=3.0: calls.append(cmd) or {"error": "success"})
+    player.set_volume(70)
+    assert calls == [["set_property", "volume", 70.0]]
+
+
+def test_info_reads_properties(tmp_path, monkeypatch):
+    cam = Camera("A", "rtsp://u:p@1.2.3.4/x")
+    player = Player(cam, 1, tmp_path / "a.sock")
+    player._proc = types.SimpleNamespace(poll=lambda: None)
+    values = {"width": {"data": 1920}, "height": {"data": 1080},
+              "estimated-vf-fps": {"data": 20.0}}
+    monkeypatch.setattr("wyze_view.player.ipc_command",
+                        lambda sock, cmd, timeout=3.0: values[cmd[1]])
+    assert player.info() == {"width": 1920, "height": 1080, "fps": 20.0}

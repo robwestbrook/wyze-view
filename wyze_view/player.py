@@ -11,14 +11,14 @@ from typing import Callable
 from .config import Camera
 
 
-def build_mpv_args(xid: int, socket_path: Path, url: str) -> list[str]:
-    return [
+def build_mpv_args(xid: int, socket_path: Path, url: str, name: str = "") -> list[str]:
+    args = [
         "mpv",
         f"--wid={xid}",
         "--no-config",
         "--no-border",
         "--no-osc",
-        "--osd-level=0",
+        "--osd-level=1",
         f"--input-ipc-server={socket_path}",
         "--rtsp-transport=tcp",
         "--hwdec=auto-safe",
@@ -26,8 +26,11 @@ def build_mpv_args(xid: int, socket_path: Path, url: str) -> list[str]:
         "--screenshot-format=jpg",
         "--really-quiet",
         "--force-window=yes",
-        url,
     ]
+    if name:
+        args.append(f"--osd-playing-msg={name}")
+    args.append(url)
+    return args
 
 
 def backoff_delay(attempt: int) -> float:
@@ -125,7 +128,7 @@ class Player:
 
     def _spawn(self) -> None:
         self._proc = subprocess.Popen(
-            build_mpv_args(self.xid, self.socket_path, self._url),
+            build_mpv_args(self.xid, self.socket_path, self._url, self.camera.name),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -178,6 +181,28 @@ class Player:
                 ipc_command(self.socket_path, ["set_property", "pause", paused])
             except (OSError, TimeoutError):
                 pass
+
+    def set_volume(self, volume: float) -> None:
+        if self._proc and self._proc.poll() is None:
+            try:
+                ipc_command(self.socket_path, ["set_property", "volume", float(volume)])
+            except (OSError, TimeoutError):
+                pass
+
+    def info(self) -> dict:
+        result = {"width": 0, "height": 0, "fps": 0.0}
+        if not (self._proc and self._proc.poll() is None):
+            return result
+        for prop, key, cast in (
+            ("width", "width", int), ("height", "height", int),
+            ("estimated-vf-fps", "fps", float),
+        ):
+            try:
+                reply = ipc_command(self.socket_path, ["get_property", prop])
+                result[key] = cast(reply.get("data") or 0)
+            except (OSError, TimeoutError, TypeError, ValueError):
+                pass
+        return result
 
     def snapshot(self, path: Path) -> None:
         reply = ipc_command(

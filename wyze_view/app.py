@@ -15,7 +15,7 @@ from gi.repository import Gdk, GdkX11, Gio, GLib, Gtk  # noqa: F401 - registers 
 from .config import Camera, load_cameras
 from .grid import grid_dims, grid_position
 from .player import Player
-from .util import sanitize_name, snapshot_path
+from .util import redact_url, sanitize_name, snapshot_path
 
 CSS = b"""
 .tile { background-color: #000000; }
@@ -119,6 +119,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self.config_path = config_path
         self.cameras: list[Camera] = []
         self.tiles: dict[str, Gtk.EventBox] = {}
+        self.offline_overlays: dict[str, Gtk.Widget] = {}
+        self.offline: set[str] = set()
         self.players: dict[str, Player] = {}
         self.enlarged: str | None = None
         self.enlarged_muted = False
@@ -263,6 +265,46 @@ class MainWindow(Gtk.ApplicationWindow):
     def _set_status(self, text: str) -> None:
         self.status.set_text(text)
 
+    def _reconnect(self, name: str) -> None:
+        player = self.players.get(name)
+        if player:
+            player.stop()
+            player.start()
+
+    def _update_status(self) -> None:
+        audio = "none"
+        if self.enlarged and not self.enlarged_muted:
+            audio = self.enlarged
+        parts = [f"{len(self.cameras)} cameras", f"{len(self.offline)} offline"]
+        if self.enlarged:
+            parts.append(f"selected: {self.enlarged}")
+        parts.append(f"audio: {audio}")
+        self._set_status(" · ".join(parts))
+
+    def _set_offline(self, name: str, offline: bool) -> None:
+        if offline:
+            self.offline.add(name)
+        else:
+            self.offline.discard(name)
+        overlay = self.offline_overlays.get(name)
+        if overlay is not None:
+            overlay.set_visible(offline)
+        self._update_status()
+
+    def _show_empty_state(self) -> None:
+        for child in self.fixed.get_children():
+            self.fixed.remove(child)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_halign(Gtk.Align.CENTER)
+        box.pack_start(Gtk.Label(label="No cameras yet"), False, False, 0)
+        button = Gtk.Button(label="Add your first camera")
+        button.connect("clicked", lambda _b: self._manage_cameras())
+        box.pack_start(button, False, False, 0)
+        self.fixed.put(box, 0, 0)
+        self.show_all()
+        self._set_status("No cameras configured")
+
     def _on_destroy(self, _widget) -> None:
         for player in self.players.values():
             player.stop()
@@ -293,6 +335,8 @@ class MainWindow(Gtk.ApplicationWindow):
             player.stop()
         self.players.clear()
         self.tiles.clear()
+        self.offline_overlays.clear()
+        self.offline.clear()
         self._ignored_children.clear()
         self.enlarged = None
         self.enlarged_muted = False
@@ -301,7 +345,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self.cameras = cameras
         if not self.cameras:
-            self._set_status(f"No cameras configured in {self.config_path}")
+            self._show_empty_state()
             return
 
         for camera in self.cameras:
@@ -310,13 +354,28 @@ class MainWindow(Gtk.ApplicationWindow):
             tile.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             tile.connect("button-press-event", self._on_tile_click, camera.name)
             tile.set_size_request(320, 180)
-            self.fixed.put(tile, 0, 0)
+
+            overlay = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            overlay.set_valign(Gtk.Align.CENTER)
+            overlay.set_halign(Gtk.Align.CENTER)
+            label = Gtk.Label(label=camera.name)
+            reconnect = Gtk.Button(label="Reconnect")
+            reconnect.connect("clicked", lambda _b, n=camera.name: self._reconnect(n))
+            overlay.pack_start(label, False, False, 0)
+            overlay.pack_start(reconnect, False, False, 0)
+            tile.add(overlay)
+
+            tile.set_tooltip_text(
+                f"{camera.name}\n{redact_url(camera.url)}"
+            )
             self.tiles[camera.name] = tile
+            self.offline_overlays[camera.name] = overlay
+            self.fixed.put(tile, 0, 0)
 
         self._layout()
         self.show_all()
         GLib.idle_add(self._start_players)
-        self._set_status(f"{len(self.cameras)} cameras")
+        self._update_status()
 
     def _on_fixed_allocate(self, _widget, allocation) -> bool:
         size = (allocation.width, allocation.height)
@@ -397,15 +456,23 @@ class MainWindow(Gtk.ApplicationWindow):
         if name not in self.players:
             return
         if state == "offline":
-            self._set_status(f"{name}: offline — retrying")
-        elif state == "playing" and self.enlarged:
+            self._set_offline(name, True)
+        elif state == "playing":
+            self._set_offline(name, False)
             player = self.players[name]
-            if name == self.enlarged:
-                if not self.enlarged_muted:
-                    player.set_muted(False)
-            else:
-                player.set_muted(True)
-                player.set_paused(True)
+            if self.enlarged:
+                if name == self.enlarged:
+                    if not self.enlarged_muted:
+                        player.set_muted(False)
+                else:
+                    player.set_muted(True)
+                    player.set_paused(True)
+            info = player.info()
+            if info["width"]:
+                self.tiles[name].set_tooltip_text(
+                    f"{name} · {info['width']}x{info['height']} · "
+                    f"{info['fps']:.0f} fps"
+                )
 
     def _on_tile_click(self, _widget, event, name: str) -> bool:
         if event.button != 1:
@@ -433,7 +500,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 player.set_muted(True)
         self.enlarged_muted = not self.settings.unmute_on_enlarge
         self._layout()
-        self._set_status(f"Viewing {name}")
+        self._update_status()
 
     def _collapse(self) -> None:
         name = self.enlarged
@@ -446,7 +513,7 @@ class MainWindow(Gtk.ApplicationWindow):
             other.set_muted(True)
             other.set_paused(False)
         self._layout()
-        self._set_status(f"{len(self.cameras)} cameras")
+        self._update_status()
 
     def snapshot(self) -> None:
         name = self.enlarged or (self.cameras[0].name if self.cameras else None)
