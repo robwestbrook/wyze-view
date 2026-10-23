@@ -189,6 +189,21 @@ Autostart writes/removes a user `.desktop` copy; no new mechanism.
   `Recommends`: `ffmpeg`.
 - Repo: `README.md` (install, first run, screenshot), `LICENSE` (MIT),
   version `0.1.0`, git tag convention.
+
+### Icon
+
+Concept **H1**: a teal aperture ring enclosing the 2×2 grid of tiles, on a
+dark rounded square — "camera + multi-view".
+
+- Source `packaging/icons/wyze-view.svg` (scalable), plus rendered PNGs at
+  16/24/32/48/64/128/256 in `packaging/icons/`.
+- The 16px and 24px sizes use a simplified variant (thicker ring, no accent
+  tile) so the shape stays crisp.
+- Installed to `/usr/share/icons/hicolor/<size>x<size>/apps/wyze-view.png`
+  (and `scalable/apps/wyze-view.svg`); referenced by `Icon=wyze-view` in the
+  desktop entry, the window icon, and the About dialog.
+- Palette: background `#20262e`, tiles `#5c6b7a`, accent `#2ec4b6`, disc
+  `#0f151b`.
 - Build: `dpkg-buildpackage -b` locally; `lintian` clean; install into a clean
   Debian 13 environment and launch from the menu.
 
