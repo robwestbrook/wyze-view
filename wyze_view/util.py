@@ -15,4 +15,4 @@ def snapshot_path(directory: Path, name: str, when: datetime) -> Path:
 
 
 def redact_url(url: str) -> str:
-    return re.sub(r"//[^/@]*@", "//***@", url)
+    return re.sub(r"//[^/]*@", "//***@", url)

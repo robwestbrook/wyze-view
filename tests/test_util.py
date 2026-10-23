@@ -28,3 +28,7 @@ def test_redact_url_hides_credentials():
     assert redact_url("rtsp://192.168.1.165:554/stream0/") == (
         "rtsp://192.168.1.165:554/stream0/"
     )
+    assert (
+        redact_url("rtsp://user:p@ss@192.168.1.165:554/stream0/")
+        == "rtsp://***@192.168.1.165:554/stream0/"
+    )
