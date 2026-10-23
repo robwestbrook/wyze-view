@@ -172,8 +172,14 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _menu_item(self, label: str, action: str) -> Gtk.MenuItem:
         item = Gtk.MenuItem(label=label)
-        item.connect("activate", lambda _w, a=action: self.activate_action(a))
+        item.connect("activate", lambda _w, a=action: self._activate_action(a))
         return item
+
+    def _activate_action(self, name: str) -> None:
+        if name.startswith("app."):
+            self.get_application().activate_action(name[4:])
+        else:
+            self.activate_action(name)
 
     def _add_actions(self) -> None:
         for name, handler, accel in (
