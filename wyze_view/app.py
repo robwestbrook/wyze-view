@@ -264,13 +264,6 @@ class MainWindow(Gtk.ApplicationWindow):
         self.status.set_text(text)
 
     def _on_destroy(self, _widget) -> None:
-        width, height = self.get_size()
-        self.settings.window_width = width
-        self.settings.window_height = height
-        from .settings import save_settings
-
-        save_settings(self.settings, self.get_application().settings_path)
-
         for player in self.players.values():
             player.stop()
         self.players.clear()
@@ -278,6 +271,16 @@ class MainWindow(Gtk.ApplicationWindow):
         if self._xdisplay:
             _X11.XCloseDisplay(self._xdisplay)
             self._xdisplay = None
+
+        width, height = self.get_size()
+        self.settings.window_width = width
+        self.settings.window_height = height
+        from .settings import save_settings
+
+        try:
+            save_settings(self.settings, self.get_application().settings_path)
+        except OSError:
+            pass
 
     def reload(self) -> None:
         try:
@@ -424,8 +427,11 @@ class MainWindow(Gtk.ApplicationWindow):
         if player:
             player.load(camera.url)
             player.set_paused(False)
-            player.set_muted(False)
-        self.enlarged_muted = False
+            if self.settings.unmute_on_enlarge:
+                player.set_muted(False)
+            else:
+                player.set_muted(True)
+        self.enlarged_muted = not self.settings.unmute_on_enlarge
         self._layout()
         self._set_status(f"Viewing {name}")
 
