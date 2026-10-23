@@ -137,13 +137,17 @@ Autostart writes/removes a user `.desktop` copy; no new mechanism.
 
 ## Usability details
 
-- **Tile labels**: camera name in a corner overlay.
-- **Offline overlay**: "Offline — retrying (Ns)" on the tile, with Reconnect.
+- **Tile labels**: GTK cannot draw over mpv's child window, so while a camera
+  plays its name is shown by mpv's own OSD (`--osd-playing-msg`, re-shown on
+  reconnect). Hovering a tile shows name/resolution/fps in a GTK tooltip.
+- **Offline overlay**: a GTK label + Reconnect button inside the tile, visible
+  because mpv's child window is gone when the camera is offline.
 - **Empty state**: with no cameras, a centered "Add your first camera" button.
 - **Tile right-click menu**: Enlarge, Snapshot, Mute, Reconnect, Remove camera.
-- **Keyboard navigation**: arrow keys move a highlighted tile, `Enter` enlarges,
-  `Esc` collapses/returns.
-- **Status bar**: "N cameras · M offline · audio: <name>".
+- **Keyboard navigation**: arrow keys change the selection, `Enter` enlarges,
+  `Esc` collapses/returns. Because a highlight cannot be drawn over video, the
+  selection is shown in the status bar ("selected: Cam2").
+- **Status bar**: "N cameras · M offline · audio: <name>" (plus selection).
 - **Volume slider** for the enlarged camera (mpv `volume` property).
 - **Snapshot**: success dialog shows the path with an Open folder button;
   failure shows the reason.
