@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import json
+import os
+import shutil
+import subprocess
 import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote, unquote, urlsplit
+
+from .util import redact_url
 
 DEFAULT_CONFIG = Path.home() / ".config" / "wyze-view" / "cameras.toml"
 
@@ -81,3 +88,62 @@ def load_cameras(path: Path = DEFAULT_CONFIG) -> list[Camera]:
         )
 
     return cameras
+
+
+def compose_rtsp_url(host: str, port: int, user: str, password: str, path: str) -> str:
+    userinfo = f"{quote(user, safe='')}:{quote(password, safe='')}"
+    if not path.startswith("/"):
+        path = "/" + path
+    return f"rtsp://{userinfo}@{host}:{port}{path}"
+
+
+def split_rtsp_url(url: str) -> dict:
+    parts = urlsplit(url)
+    return {
+        "host": parts.hostname or "",
+        "port": parts.port or 554,
+        "user": unquote(parts.username or ""),
+        "password": unquote(parts.password or ""),
+        "path": parts.path or "/",
+    }
+
+
+def save_cameras(cameras: list[Camera], path: Path = DEFAULT_CONFIG) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
+    lines = ["# Wyze View cameras. Managed by the app; safe to edit by hand.", ""]
+    for camera in cameras:
+        lines += ["[[camera]]", f"name = {json.dumps(camera.name)}",
+                  f"url = {json.dumps(camera.url)}"]
+        if camera.sub_url:
+            lines.append(f"sub_url = {json.dumps(camera.sub_url)}")
+        lines.append("")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("\n".join(lines))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def test_camera(camera: Camera, timeout: float = 15.0) -> tuple[bool, str]:
+    if shutil.which("ffprobe") is None:
+        return False, "ffprobe not found — install ffmpeg to test cameras"
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-rtsp_transport", "tcp",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=codec_name,width,height",
+                "-of", "csv=p=0", camera.url,
+            ],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, redact_url(str(exc))
+    ok = result.returncode == 0 and bool(result.stdout.strip())
+    detail = result.stdout.strip() or result.stderr.strip()
+    if not detail:
+        return ok, ""
+    return ok, redact_url(detail.splitlines()[-1])
+
+
+test_camera.__test__ = False
