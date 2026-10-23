@@ -150,7 +150,7 @@ class MainWindow(Gtk.ApplicationWindow):
         bar = Gtk.MenuBar()
         file_item = Gtk.MenuItem(label="File")
         file_menu = Gtk.Menu()
-        file_menu.append(self._menu_item("Add Camera…", "manage-cameras"))
+        file_menu.append(self._menu_item("Add Camera…", "add-camera"))
         file_menu.append(self._menu_item("Manage Cameras…", "manage-cameras"))
         file_menu.append(self._menu_item("Reload", "reload"))
         file_menu.append(Gtk.SeparatorMenuItem())
@@ -200,11 +200,15 @@ class MainWindow(Gtk.ApplicationWindow):
         action = Gio.SimpleAction.new("manage-cameras", None)
         action.connect("activate", lambda *_: self._manage_cameras())
         self.add_action(action)
+
+        action = Gio.SimpleAction.new("add-camera", None)
+        action.connect("activate", lambda *_: self._manage_cameras(start_add=True))
+        self.add_action(action)
         self.get_application().set_accels_for_action(
-            "win.manage-cameras", ["<Primary>n"]
+            "win.add-camera", ["<Primary>n"]
         )
 
-    def _manage_cameras(self) -> None:
+    def _manage_cameras(self, start_add: bool = False) -> None:
         from .dialogs.camera_manager import CameraManagerDialog
 
         def on_save(cameras: list[Camera]) -> None:
@@ -217,7 +221,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 return
             self.reload()
 
-        CameraManagerDialog(self, self.cameras, on_save).run()
+        CameraManagerDialog(self, self.cameras, on_save, start_add=start_add).run()
 
     def _set_status(self, text: str) -> None:
         self.status.set_text(text)
