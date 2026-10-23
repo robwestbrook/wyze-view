@@ -41,9 +41,23 @@ def ipc_command(socket_path: Path, command: list, timeout: float = 3.0) -> dict:
             raise TimeoutError(f"mpv IPC socket did not appear: {socket_path}")
         time.sleep(0.05)
 
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+    # The socket file appears at bind() time, before listen(), so connect() can
+    # be refused; retry until the deadline instead of dropping the command.
+    while True:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(timeout)
-        sock.connect(str(socket_path))
+        try:
+            sock.connect(str(socket_path))
+            break
+        except OSError:
+            sock.close()
+            if time.monotonic() > deadline:
+                raise TimeoutError(
+                    f"mpv IPC socket not accepting connections: {socket_path}"
+                ) from None
+            time.sleep(0.05)
+
+    with sock:
         payload = json.dumps({"command": command, "request_id": 1}) + "\n"
         sock.sendall(payload.encode())
         buffer = b""
