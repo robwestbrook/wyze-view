@@ -43,6 +43,19 @@ class PreferencesDialog(Gtk.Dialog):
         grid.attach(self.record_folder, 1, row, 1, 1)
         row += 1
 
+        grid.attach(Gtk.Label(label="Recording filename", xalign=0.0), 0, row, 1, 1)
+        self.record_name = Gtk.Entry()
+        self.record_name.set_text(getattr(settings, "record_filename", "{name}-{date}.mkv"))
+        self.record_name.set_tooltip_text("{name}, {date}, {time}, {datetime}")
+        grid.attach(self.record_name, 1, row, 1, 1)
+        row += 1
+
+        grid.attach(Gtk.Label(label="Max recording size (MB, 0=off)", xalign=0.0), 0, row, 1, 1)
+        self.record_max = Gtk.SpinButton.new_with_range(0, 100000, 100)
+        self.record_max.set_value(int(getattr(settings, "record_max_size_mb", 0)))
+        grid.attach(self.record_max, 1, row, 1, 1)
+        row += 1
+
         self.start_fullscreen = Gtk.Switch(active=settings.start_fullscreen)
         grid.attach(Gtk.Label(label="Start fullscreen", xalign=0.0), 0, row, 1, 1)
         grid.attach(self.start_fullscreen, 1, row, 1, 1)
@@ -72,6 +85,8 @@ class PreferencesDialog(Gtk.Dialog):
     def result_settings(self) -> Settings:
         self.settings.snapshot_dir = Path(self.folder.get_filename())
         self.settings.record_dir = Path(self.record_folder.get_filename())
+        self.settings.record_filename = self.record_name.get_text()
+        self.settings.record_max_size_mb = int(self.record_max.get_value())
         self.settings.start_fullscreen = self.start_fullscreen.get_active()
         self.settings.unmute_on_enlarge = self.unmute.get_active()
         self.settings.grid_columns = int(self.columns.get_active_id() or "0")

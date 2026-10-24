@@ -133,6 +133,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.enlarged_muted = False
         self.recording: str | None = None
         self._recording_path: Path | None = None
+        self._recording_timer: int | None = None
         self._tmp = tempfile.TemporaryDirectory(prefix="wyze-view-")
         self._xdisplay = _X11.XOpenDisplay(None)
         self._ignored_children: dict[int, int] = {}
@@ -395,6 +396,9 @@ class MainWindow(Gtk.ApplicationWindow):
                     player.stop_recording()
             except Exception:
                 pass
+            if self._recording_timer is not None:
+                GLib.source_remove(self._recording_timer)
+                self._recording_timer = None
             self.recording = None
             self._recording_path = None
             if hasattr(self, "record_button"):
@@ -667,8 +671,80 @@ class MainWindow(Gtk.ApplicationWindow):
         directory.mkdir(parents=True, exist_ok=True)
         from .util import sanitize_name
 
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-        return directory / f"{sanitize_name(name)}-{ts}.mkv"
+        now = datetime.now()
+        template = getattr(self.settings, "record_filename", "{name}-{date}.mkv") or "{name}-{date}.mkv"
+        try:
+            fname = template.format(
+                name=sanitize_name(name),
+                date=now.strftime("%Y%m%d"),
+                time=now.strftime("%H%M%S"),
+                datetime=now.strftime("%Y%m%d-%H%M%S"),
+            )
+        except Exception:
+            fname = f"{sanitize_name(name)}-{now.strftime('%Y%m%d-%H%M%S')}.mkv"
+        if not fname.lower().endswith((".mkv", ".mp4", ".ts")):
+            fname += ".mkv"
+        return directory / fname
+
+    def _oldest_recording(self, name: str) -> Path | None:
+        directory = getattr(self.settings, "record_dir", None) or self.settings.snapshot_dir
+        from .util import sanitize_name
+        pattern = f"{sanitize_name(name)}-*"
+        try:
+            files = []
+            for p in directory.glob(pattern):
+                if p.is_file():
+                    files.append((p.stat().st_mtime, p))
+            if not files:
+                return None
+            files.sort()
+            return files[0][1]
+        except Exception:
+            return None
+
+    def _check_record_size(self) -> bool:
+        if not self.recording or not self._recording_path:
+            return False
+        max_mb = int(getattr(self.settings, "record_max_size_mb", 0) or 0)
+        if max_mb <= 0:
+            return True
+        try:
+            if self._recording_path.exists():
+                size_mb = self._recording_path.stat().st_size / (1024 * 1024)
+                if size_mb >= max_mb:
+                    target = self.recording
+                    oldest = self._oldest_recording(target)
+                    if oldest and oldest != self._recording_path:
+                        try:
+                            oldest.unlink()
+                        except Exception:
+                            pass
+                    self._rotate_recording(target)
+                    return True
+        except Exception:
+            pass
+        return True
+
+    def _rotate_recording(self, name: str) -> None:
+        player = self.players.get(name)
+        if not player:
+            self._stop_recording()
+            return
+        try:
+            player.stop_recording()
+        except Exception:
+            pass
+        path = self._record_path(name)
+        try:
+            player.start_recording(path)
+        except Exception as exc:
+            self._set_status(f"Record failed: {exc}")
+            self._stop_recording()
+            return
+        self.recording = name
+        self._recording_path = path
+        self._update_status()
+        self._set_status(f"Recording to {path}")
 
     def toggle_record(self, name: str | None = None) -> None:
         target = name or self.enlarged or (self.cameras[self.selected].name if self.cameras else None)
@@ -692,6 +768,12 @@ class MainWindow(Gtk.ApplicationWindow):
             return
         self.recording = target
         self._recording_path = path
+        if self._recording_timer is not None:
+            try:
+                GLib.source_remove(self._recording_timer)
+            except Exception:
+                pass
+        self._recording_timer = GLib.timeout_add(1000, self._check_record_size)
         if hasattr(self, "record_button"):
             self.record_button.set_active(True)
         self._update_status()
@@ -706,6 +788,12 @@ class MainWindow(Gtk.ApplicationWindow):
                 player.stop_recording()
             except Exception:
                 pass
+        if self._recording_timer is not None:
+            try:
+                GLib.source_remove(self._recording_timer)
+            except Exception:
+                pass
+            self._recording_timer = None
         path = self._recording_path
         self.recording = None
         self._recording_path = None
