@@ -211,6 +211,20 @@ class Player:
         if reply.get("error") != "success":
             raise RuntimeError(f"mpv snapshot failed: {reply.get('error')}")
 
+    def start_recording(self, path: Path) -> None:
+        if self._proc and self._proc.poll() is None:
+            try:
+                ipc_command(self.socket_path, ["set_property", "stream-record", str(path)])
+            except (OSError, TimeoutError) as exc:
+                raise RuntimeError(f"mpv recording start failed: {exc}") from exc
+
+    def stop_recording(self) -> None:
+        if self._proc and self._proc.poll() is None:
+            try:
+                ipc_command(self.socket_path, ["set_property", "stream-record", ""])
+            except (OSError, TimeoutError):
+                pass
+
     def stop(self) -> None:
         self._generation += 1
         proc = self._proc

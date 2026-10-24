@@ -131,6 +131,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self.selected = 0
         self.enlarged: str | None = None
         self.enlarged_muted = False
+        self.recording: str | None = None
+        self._recording_path: Path | None = None
         self._tmp = tempfile.TemporaryDirectory(prefix="wyze-view-")
         self._xdisplay = _X11.XOpenDisplay(None)
         self._ignored_children: dict[int, int] = {}
@@ -147,6 +149,11 @@ class MainWindow(Gtk.ApplicationWindow):
         self.volume.set_tooltip_text("Volume (enlarged camera)")
         self.volume.connect("value-changed", self._on_volume)
         header.pack_end(self.volume)
+
+        self.record_button = Gtk.ToggleButton(label="Rec")
+        self.record_button.set_tooltip_text("Record selected/enlarged camera")
+        self.record_button.connect("toggled", self._on_record_toggled)
+        header.pack_end(self.record_button)
 
         self.status = Gtk.Label(label="")
         self.status.set_xalign(0.0)
@@ -204,6 +211,7 @@ class MainWindow(Gtk.ApplicationWindow):
         camera_item = Gtk.MenuItem(label="Camera")
         camera_menu = Gtk.Menu()
         camera_menu.append(self._menu_item("Snapshot", "snapshot"))
+        camera_menu.append(self._menu_item("Record", "record"))
         camera_menu.append(self._menu_item("Mute", "mute"))
         camera_item.set_submenu(camera_menu)
         bar.append(camera_item)
@@ -231,6 +239,7 @@ class MainWindow(Gtk.ApplicationWindow):
         for name, handler, accel in (
             ("reload", lambda *_: self.reload(), "r"),
             ("snapshot", lambda *_: self.snapshot(), "s"),
+            ("record", lambda *_: self.toggle_record(), "t"),
             ("mute", lambda *_: self.toggle_mute(), "m"),
             ("fullscreen", lambda *_: self.toggle_fullscreen(), "F11"),
         ):
@@ -322,6 +331,8 @@ class MainWindow(Gtk.ApplicationWindow):
         if self.cameras:
             parts.append(f"selected: {self.cameras[self.selected].name}")
         parts.append(f"audio: {audio}")
+        if self.recording:
+            parts.append(f"REC: {self.recording}")
         self._set_status(" · ".join(parts))
 
     def _set_offline(self, name: str, offline: bool) -> None:
@@ -377,6 +388,17 @@ class MainWindow(Gtk.ApplicationWindow):
             self._set_status(f"Config error: {exc}")
             return
 
+        if self.recording and self._recording_path:
+            try:
+                player = self.players.get(self.recording)
+                if player:
+                    player.stop_recording()
+            except Exception:
+                pass
+            self.recording = None
+            self._recording_path = None
+            if hasattr(self, "record_button"):
+                self.record_button.set_active(False)
         for player in self.players.values():
             player.stop()
         self.players.clear()
@@ -559,6 +581,7 @@ class MainWindow(Gtk.ApplicationWindow):
         for label, callback in (
             ("Enlarge", lambda: self._enlarge(name)),
             ("Snapshot", lambda: self.snapshot(name)),
+            ("Record/Stop", lambda: self.toggle_record(name)),
             ("Mute", lambda: self.toggle_mute(name)),
             ("Reconnect", lambda: self._reconnect(name)),
             ("Remove camera", lambda: self._remove_camera(name)),
@@ -639,6 +662,65 @@ class MainWindow(Gtk.ApplicationWindow):
         self._set_status(f"Saved {path}")
         self._show_snapshot_result("Snapshot saved", str(path), directory)
 
+    def _record_path(self, name: str) -> Path:
+        directory = getattr(self.settings, "record_dir", None) or self.settings.snapshot_dir
+        directory.mkdir(parents=True, exist_ok=True)
+        from .util import sanitize_name
+
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        return directory / f"{sanitize_name(name)}-{ts}.mkv"
+
+    def toggle_record(self, name: str | None = None) -> None:
+        target = name or self.enlarged or (self.cameras[self.selected].name if self.cameras else None)
+        if not target:
+            self._set_status("No camera to record")
+            return
+        if self.recording == target:
+            self._stop_recording()
+            return
+        if self.recording:
+            self._stop_recording()
+        player = self.players.get(target)
+        if not player:
+            self._set_status("Camera not ready")
+            return
+        path = self._record_path(target)
+        try:
+            player.start_recording(path)
+        except Exception as exc:
+            self._set_status(f"Record failed: {exc}")
+            return
+        self.recording = target
+        self._recording_path = path
+        if hasattr(self, "record_button"):
+            self.record_button.set_active(True)
+        self._update_status()
+        self._set_status(f"Recording to {path}")
+
+    def _stop_recording(self) -> None:
+        if not self.recording:
+            return
+        player = self.players.get(self.recording)
+        if player:
+            try:
+                player.stop_recording()
+            except Exception:
+                pass
+        path = self._recording_path
+        self.recording = None
+        self._recording_path = None
+        if hasattr(self, "record_button"):
+            self.record_button.set_active(False)
+        self._update_status()
+        if path:
+            self._set_status(f"Saved {path}")
+
+    def _on_record_toggled(self, button) -> None:
+        if button.get_active():
+            self.toggle_record()
+        else:
+            self._stop_recording()
+
     def _show_snapshot_result(self, title: str, detail: str, folder) -> None:
         dialog = Gtk.MessageDialog(
             transient_for=self, modal=True,
@@ -718,6 +800,9 @@ class MainWindow(Gtk.ApplicationWindow):
             return True
         if key in (Gdk.KEY_m, Gdk.KEY_M):
             self.toggle_mute()
+            return True
+        if key in (Gdk.KEY_t, Gdk.KEY_T):
+            self.toggle_record()
             return True
         if key == Gdk.KEY_F11:
             self.toggle_fullscreen()

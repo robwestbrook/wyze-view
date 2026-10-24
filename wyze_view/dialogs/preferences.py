@@ -35,6 +35,14 @@ class PreferencesDialog(Gtk.Dialog):
         grid.attach(self.folder, 1, row, 1, 1)
         row += 1
 
+        grid.attach(Gtk.Label(label="Recordings folder", xalign=0.0), 0, row, 1, 1)
+        self.record_folder = Gtk.FileChooserButton(
+            title="Recordings folder", action=Gtk.FileChooserAction.SELECT_FOLDER
+        )
+        self.record_folder.set_filename(str(getattr(settings, "record_dir", settings.snapshot_dir)))
+        grid.attach(self.record_folder, 1, row, 1, 1)
+        row += 1
+
         self.start_fullscreen = Gtk.Switch(active=settings.start_fullscreen)
         grid.attach(Gtk.Label(label="Start fullscreen", xalign=0.0), 0, row, 1, 1)
         grid.attach(self.start_fullscreen, 1, row, 1, 1)
@@ -63,6 +71,7 @@ class PreferencesDialog(Gtk.Dialog):
 
     def result_settings(self) -> Settings:
         self.settings.snapshot_dir = Path(self.folder.get_filename())
+        self.settings.record_dir = Path(self.record_folder.get_filename())
         self.settings.start_fullscreen = self.start_fullscreen.get_active()
         self.settings.unmute_on_enlarge = self.unmute.get_active()
         self.settings.grid_columns = int(self.columns.get_active_id() or "0")

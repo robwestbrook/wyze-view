@@ -12,6 +12,7 @@ DEFAULT_SETTINGS = Path.home() / ".config" / "wyze-view" / "settings.toml"
 @dataclass
 class Settings:
     snapshot_dir: Path = Path.home() / "Pictures" / "cameras"
+    record_dir: Path = Path.home() / "Videos" / "wyze-view"
     start_fullscreen: bool = False
     unmute_on_enlarge: bool = True
     grid_columns: int = 0
@@ -31,6 +32,10 @@ def load_settings(path: Path = DEFAULT_SETTINGS) -> Settings:
         return settings
     if isinstance(raw.get("snapshot_dir"), str):
         settings.snapshot_dir = Path(raw["snapshot_dir"]).expanduser()
+    if isinstance(raw.get("record_dir"), str):
+        settings.record_dir = Path(raw["record_dir"]).expanduser()
+    else:
+        settings.record_dir = settings.snapshot_dir
     for field in ("start_fullscreen", "unmute_on_enlarge", "autostart"):
         if isinstance(raw.get(field), bool):
             setattr(settings, field, raw[field])
@@ -49,6 +54,7 @@ def save_settings(settings: Settings, path: Path = DEFAULT_SETTINGS) -> None:
     lines = [
         "# Wyze View settings.",
         f"snapshot_dir = {json.dumps(str(settings.snapshot_dir))}",
+        f"record_dir = {json.dumps(str(settings.record_dir))}",
         f"start_fullscreen = {str(settings.start_fullscreen).lower()}",
         f"unmute_on_enlarge = {str(settings.unmute_on_enlarge).lower()}",
         f"grid_columns = {settings.grid_columns}",
