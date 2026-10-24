@@ -156,6 +156,14 @@ class MainWindow(Gtk.ApplicationWindow):
         self.record_button.connect("toggled", self._on_record_toggled)
         header.pack_end(self.record_button)
 
+        self._record_style = Gtk.CssProvider()
+        self._record_style.load_from_data(b".recording { color: #ff4444; font-weight: bold; }")
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            self._record_style,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+
         self.status = Gtk.Label(label="")
         self.status.set_xalign(0.0)
         self.status.get_style_context().add_class("status")
@@ -776,8 +784,10 @@ class MainWindow(Gtk.ApplicationWindow):
         self._recording_timer = GLib.timeout_add(1000, self._check_record_size)
         if hasattr(self, "record_button"):
             self.record_button.set_active(True)
+            ctx = self.record_button.get_style_context()
+            ctx.add_class("recording")
         self._update_status()
-        self._set_status(f"Recording to {path}")
+        self._set_status(f"REC ● {target} → {path}")
 
     def _stop_recording(self) -> None:
         if not self.recording:
@@ -799,9 +809,12 @@ class MainWindow(Gtk.ApplicationWindow):
         self._recording_path = None
         if hasattr(self, "record_button"):
             self.record_button.set_active(False)
+            ctx = self.record_button.get_style_context()
+            ctx.remove_class("recording")
         self._update_status()
         if path:
             self._set_status(f"Saved {path}")
+            GLib.idle_add(self._show_record_result, str(path), self.settings.record_dir)
 
     def _on_record_toggled(self, button) -> None:
         if button.get_active():
@@ -826,6 +839,25 @@ class MainWindow(Gtk.ApplicationWindow):
             )
         dialog.run()
         dialog.destroy()
+
+    def _show_record_result(self, detail: str, folder) -> bool:
+        dialog = Gtk.MessageDialog(
+            transient_for=self, modal=True,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.CLOSE, text="Recording saved",
+        )
+        dialog.format_secondary_text(detail)
+        if folder is not None:
+            open_button = dialog.add_button("Open folder", Gtk.ResponseType.ACCEPT)
+            open_button.connect(
+                "clicked",
+                lambda _b: Gtk.show_uri_on_window(
+                    self, folder.as_uri(), Gdk.CURRENT_TIME
+                ),
+            )
+        dialog.run()
+        dialog.destroy()
+        return False
 
     def toggle_mute(self, name: str | None = None) -> None:
         name = name or self.enlarged
