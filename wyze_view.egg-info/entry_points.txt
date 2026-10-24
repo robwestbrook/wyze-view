@@ -1,0 +1,2 @@
+[console_scripts]
+wyze-view = wyze_view.__main__:main

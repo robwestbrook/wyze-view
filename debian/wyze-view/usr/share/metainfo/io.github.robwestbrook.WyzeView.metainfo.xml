@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.robwestbrook.WyzeView</id>
+  <name>Wyze View</name>
+  <summary>Live RTSP multi-view for your cameras</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <launchable type="desktop-id">wyze-view.desktop</launchable>
+  <url type="homepage">https://github.com/robwestbrook/wyze-view</url>
+  <description>
+    <p>Shows live RTSP feeds from multiple cameras in one window, with a
+    click-to-enlarge grid, per-camera audio, snapshots, and fullscreen.</p>
+  </description>
+  <content_rating type="oars-1.1"/>
+</component>

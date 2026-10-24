@@ -16,8 +16,8 @@ class Settings:
     unmute_on_enlarge: bool = True
     grid_columns: int = 0
     autostart: bool = False
-    window_width: int = 1280
-    window_height: int = 720
+    window_width: int = 1600
+    window_height: int = 900
 
 
 def load_settings(path: Path = DEFAULT_SETTINGS) -> Settings:

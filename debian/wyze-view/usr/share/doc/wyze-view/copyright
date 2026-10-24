@@ -1,0 +1,7 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: wyze-view
+Source: https://github.com/robwestbrook/wyze-view
+
+Files: *
+Copyright: 2026 Rob Westbrook
+License: MIT

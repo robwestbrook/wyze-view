@@ -1,0 +1,12 @@
+Package: wyze-view
+Version: 0.1.0
+Architecture: all
+Maintainer: Rob Westbrook <robwestbrook@users.noreply.github.com>
+Installed-Size: 225
+Depends: python3:any (>= 3.11~), python3-gi, gir1.2-gtk-3.0, mpv
+Recommends: ffmpeg
+Section: video
+Priority: optional
+Description: live Wyze camera multi-view
+ Shows live RTSP feeds from multiple cameras in one window, with a
+ click-to-enlarge grid, per-camera audio, snapshots, and fullscreen.

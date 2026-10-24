@@ -120,6 +120,7 @@ class MainWindow(Gtk.ApplicationWindow):
         super().__init__(application=application, title="Wyze View")
         self.settings = settings
         self.set_default_size(settings.window_width, settings.window_height)
+        self.set_size_request(800, 450)
         self.set_icon_name("wyze-view")
         self.config_path = config_path
         self.cameras: list[Camera] = []
@@ -162,6 +163,8 @@ class MainWindow(Gtk.ApplicationWindow):
 
         if settings.start_fullscreen:
             self.fullscreen()
+        else:
+            self.maximize()
 
         provider = Gtk.CssProvider()
         provider.load_from_data(CSS)

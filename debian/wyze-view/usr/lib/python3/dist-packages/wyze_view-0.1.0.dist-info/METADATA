@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: wyze-view
+Version: 0.1.0
+Summary: Live Wyze camera multi-view for the desktop
+Requires-Python: >=3.11
+License-File: LICENSE
+Dynamic: license-file

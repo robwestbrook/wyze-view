@@ -14,7 +14,7 @@ def test_partial_file_fills_defaults(tmp_path):
     settings = load_settings(cfg)
     assert settings.grid_columns == 3
     assert settings.start_fullscreen is True
-    assert settings.window_width == 1280
+    assert settings.window_width == 1600
     assert settings.unmute_on_enlarge is True
 
 
@@ -46,4 +46,4 @@ def test_invalid_values_are_ignored(tmp_path):
     cfg.write_text('grid_columns = 9\nwindow_width = "wide"\n')
     settings = load_settings(cfg)
     assert settings.grid_columns == 0
-    assert settings.window_width == 1280
+    assert settings.window_width == 1600
