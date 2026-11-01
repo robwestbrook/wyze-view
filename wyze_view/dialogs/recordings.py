@@ -24,6 +24,7 @@ class RecordingsDialog(Gtk.Dialog):
 
         self.listbox = Gtk.ListBox()
         self.listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.listbox.set_activate_on_single_click(False)  # select on 1 click, play on 2
         self.listbox.connect("row-activated", lambda *_: self._play())
         scroller = Gtk.ScrolledWindow()
         scroller.add(self.listbox)

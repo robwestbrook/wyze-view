@@ -135,6 +135,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self.enlarged: str | None = None
         self.enlarged_muted = False
         self.recorders: dict[str, Recorder] = {}
+        self._pending_stops: list[threading.Thread] = []
+        self._rec_osd_scheduled = False
         self._tmp = tempfile.TemporaryDirectory(prefix="wyze-view-")
         self._xdisplay = _X11.XOpenDisplay(None)
         self._ignored_children: dict[int, int] = {}
@@ -734,9 +736,24 @@ class MainWindow(Gtk.ApplicationWindow):
         )
         recorder.start()
         self.recorders[name] = recorder
+        if not self._rec_osd_scheduled:
+            self._rec_osd_scheduled = True
+            # mpv's OSD text expires after OSD_DURATION_MS (1 h); re-assert
+            # every 60 s while recording so the ● REC badge never silently dies.
+            GLib.timeout_add_seconds(60, self._reassert_rec_osd)
         player = self.players.get(name)
         if player and player.state == "playing":
             player.show_osd("● REC")
+
+    def _reassert_rec_osd(self) -> bool:
+        if not self.recorders:
+            self._rec_osd_scheduled = False
+            return False  # self-terminating: nothing to badge any more
+        for name in self.recorders:
+            player = self.players.get(name)
+            if player and player.state == "playing":
+                player.show_osd("● REC")  # swallows dead-proc IPC errors
+        return True
 
     def _stop_recording(self, name: str) -> None:
         recorder = self.recorders.pop(name, None)
@@ -746,21 +763,32 @@ class MainWindow(Gtk.ApplicationWindow):
         if player:
             player.clear_osd()
         directory = self.settings.record_dir
+        self._pending_stops = [t for t in self._pending_stops if t.is_alive()]
 
         def finish() -> None:
             path = recorder.stop()  # blocks up to a few seconds
-            if path is not None:
+            # Guard the race where teardown started while we were in stop():
+            # a modal dialog queued after destroy would block the app's exit.
+            if path is not None and not self._torn_down:
                 GLib.idle_add(self._show_record_result, str(path), directory)
 
-        threading.Thread(target=finish, daemon=True).start()
+        # Non-daemon so a quit during the SIGINT wait can't kill this thread
+        # mid-rename and orphan the hidden .part file; _stop_all_recorders_blocking
+        # joins these on the quit path so the wait stays bounded.
+        thread = threading.Thread(target=finish)
+        self._pending_stops.append(thread)
+        thread.start()
 
     def _stop_all_recorders_blocking(self, timeout: float = 5.0) -> None:
         # Quit path: a daemon thread can be killed mid-rename when the process
         # exits, so use non-daemon threads and wait for every recorder to
         # finalize, bounded by `timeout` overall regardless of camera count.
+        # Stops already in flight from _stop_recording are folded into the
+        # same deadline so none of them dies with the app.
         recorders = list(self.recorders.items())
         self.recorders.clear()
-        threads = []
+        threads = [t for t in self._pending_stops if t.is_alive()]
+        self._pending_stops = []
         for name, recorder in recorders:
             player = self.players.get(name)
             if player:
@@ -777,7 +805,13 @@ class MainWindow(Gtk.ApplicationWindow):
             return False  # quit race: recorder finalized after teardown
         self._update_status()
         if state == "error":
-            self._set_status(f"{name}: recording error")
+            recorder = self.recorders.get(name)
+            message = f"{name}: recording error"
+            # last_error is already redacted by Recorder; the recorder may have
+            # been popped (stopped) before this idle ran, then the detail is gone.
+            if recorder is not None and recorder.last_error:
+                message += f" — {recorder.last_error}"
+            self._set_status(message)
         self._sync_record_button()
         return False
 
@@ -814,6 +848,8 @@ class MainWindow(Gtk.ApplicationWindow):
         dialog.destroy()
 
     def _show_record_result(self, detail: str, folder) -> bool:
+        if self._torn_down:
+            return False  # quit race: stop finished after the window closed
         dialog = Gtk.MessageDialog(
             transient_for=self, modal=True,
             message_type=Gtk.MessageType.INFO,

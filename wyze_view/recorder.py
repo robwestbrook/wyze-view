@@ -17,6 +17,7 @@ from wyze_view.util import redact_url, sanitize_name
 RECORDING_EXTENSIONS = (".mkv", ".mp4", ".ts")
 _POLL_INTERVAL_S = 1.0
 _STOP_WAIT_S = 5.0
+_KILL_WAIT_S = 2.0
 
 
 def record_filename(name: str, start: datetime, stop: datetime) -> str:
@@ -156,7 +157,13 @@ class Recorder:
         try:
             proc.wait(timeout=_STOP_WAIT_S)
         except subprocess.TimeoutExpired:
-            pass
+            # ffmpeg wedged and ignored SIGINT: escalate, or a live process
+            # outlives us and finalization never sees the file's last bytes.
+            try:
+                proc.kill()
+                proc.wait(timeout=_KILL_WAIT_S)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                pass  # SIGKILL delivered or proc vanished; don't hang teardown
 
     def _watch(self, generation: int) -> None:
         while generation == self._generation:

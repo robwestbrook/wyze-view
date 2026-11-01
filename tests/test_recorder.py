@@ -1,5 +1,6 @@
 import os
 import signal
+import subprocess
 import threading
 import time
 import types
@@ -205,6 +206,39 @@ def test_stop_discards_empty_working_file(tmp_path, monkeypatch):
     final = recorder.stop()
     assert final is None
     assert list(tmp_path.iterdir()) == []
+
+
+def test_stop_kills_stubborn_process_and_still_finalizes(tmp_path, monkeypatch):
+    import wyze_view.recorder as recorder_module
+
+    kills = []
+
+    class FakeProc:
+        returncode = None  # never exits on its own; poll() keeps saying alive
+        def __init__(self, path):
+            Path(path).write_bytes(b"data")
+        def poll(self): return None
+        def send_signal(self, sig): pass
+        def wait(self, timeout=None):
+            raise subprocess.TimeoutExpired("ffmpeg", timeout)
+        def kill(self): kills.append(signal.SIGKILL)
+
+    monkeypatch.setattr(
+        recorder_module.subprocess, "Popen",
+        lambda args, **kwargs: FakeProc(args[-1]),
+    )
+    monkeypatch.setattr(recorder_module.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+
+    camera = Camera("Corner", "rtsp://u:p@1.2.3.4/x")
+    recorder = Recorder(camera, tmp_path)
+    recorder.start()
+    final = recorder.stop()
+
+    assert kills, "SIGINT timeout did not escalate to kill()"
+    assert final is not None and final.exists()
+    assert final.read_bytes() == b"data"  # segment finalized despite the wedge
+    assert not any(p.name.startswith(".") for p in tmp_path.iterdir())
+    assert recorder.state == "stopped"
 
 
 def test_zero_or_negative_max_size_means_no_cap(tmp_path, monkeypatch):
