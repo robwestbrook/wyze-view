@@ -28,8 +28,8 @@ sudo dpkg -i ../wyze-view_0.1.0_all.deb
 - A **X11** session, or **XWayland** on a Wayland session. Pure-Wayland
   embedding is not supported yet.
 - **mpv** (required) — `sudo apt install mpv`
-- **ffmpeg** (optional) — provides `ffprobe` for the `--check` command and the
-  camera connection test in the camera manager.
+- **ffmpeg** (required) — records camera streams, and provides `ffprobe` for
+  the `--check` command and the camera connection test in the camera manager.
 - GTK 3 and PyGObject (`python3-gi`, `gir1.2-gtk-3.0`), pulled in by the
   package.
 
@@ -56,6 +56,33 @@ sub_url = "rtsp://user:pass@192.168.1.165:554/stream1/"
 pick up edits. Preferences are stored alongside it in
 `~/.config/wyze-view/settings.toml`.
 
+## Recording
+
+- **Rec** in the header records the selected (enlarged) camera. Toggle it
+  again to stop.
+- **Camera ▸ Record** does the same. **Record All** starts every camera, and
+  **Stop All** stops them.
+- Right-click a tile and choose **Record/Stop**.
+- Press `Ctrl+T` to start or stop the selected camera.
+- To start a camera automatically, tick **Record automatically** for it in
+  **Manage Cameras**. This saves `record = true` in `cameras.toml`. The camera
+  starts recording on launch and after **File ▸ Reload**. Reload stops all
+  recordings first, so manual recordings end there.
+
+Files are named `<name>-<start-date>-<start-time>_<stop-date>-<stop-time>.mkv`,
+for example `Corner-2026-11-01-093000_2026-11-01-100512.mkv`.
+
+In **Preferences** you can set:
+
+- **Recordings folder**, default `~/Videos/wyze-view`.
+- **Max recording size (MB)**, default `0` (no limit). At the cap, the same
+  file is overwritten from the start and recording continues. The file always
+  holds the most recent N MB. If the connection drops, the partial file is
+  finalized and a new one starts.
+
+To play back recordings, open **File ▸ Recordings…**. It lists the files in
+the recordings folder and plays them in mpv.
+
 ## CLI
 
 ```sh
@@ -73,6 +100,7 @@ camera is unreachable.
 | `R` | Reload cameras |
 | `S` | Snapshot |
 | `M` | Mute the enlarged camera |
+| `Ctrl+T` | Record / stop the enlarged camera |
 | `F11` | Fullscreen |
 | `Ctrl+N` | Manage cameras |
 | `Ctrl+P` | Preferences |

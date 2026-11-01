@@ -9,8 +9,7 @@ X-Python3-Version: >= 3.11
 
 Package: wyze-view
 Architecture: all
-Depends: ${python3:Depends}, ${misc:Depends}, python3-gi, gir1.2-gtk-3.0, mpv
-Recommends: ffmpeg
+Depends: ${python3:Depends}, ${misc:Depends}, python3-gi, gir1.2-gtk-3.0, mpv, ffmpeg
 Description: live Wyze camera multi-view
  Shows live RTSP feeds from multiple cameras in one window, with a
  click-to-enlarge grid, per-camera audio, snapshots, and fullscreen.
