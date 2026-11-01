@@ -43,7 +43,8 @@ hands-off capture that is independent of what the grid is showing.
 - Deleting or editing recordings from the app.
 - Keeping a history of files per recording session; overwrite means one
   rolling file per camera.
-- Recording the main stream; recordings use the sub stream.
+- Recording the main stream when a sub stream exists; cameras without
+  `sub_url` record their main `url` as a fallback.
 
 ## Anti-goals
 
@@ -121,17 +122,24 @@ and is not listed by the Recordings dialog.
 A `Recorder` owns one camera's ffmpeg process and a daemon watcher thread.
 
 - `start()` spawns:
-  `ffmpeg -nostdin -loglevel error -rtsp_transport tcp -i <sub_url>
-   -c copy -f matroska -y <working>`.
+  `ffmpeg -nostdin -loglevel error -rtsp_transport tcp -i <sub_url or url>
+   -c copy -f matroska -y <working>`. Cameras without a sub stream fall back to
+  the main URL, matching the display player.
 - The watcher polls the process and the working file's size about once per
   second:
-  - unexpected exit while active → retry with backoff (5 s, 10 s, 20 s, 40 s,
-    60 s cap), like the display player.
+  - unexpected exit while active → finalize and rename the current working
+    file (if non-empty) with the stop time of the drop, then retry with
+    backoff (5 s, 10 s, 20 s, 40 s, 60 s cap) into a **new** working file with
+    a new start time. No footage is discarded; one recording session can
+    become several files if the camera drops repeatedly.
   - `max_size_mb > 0` and size ≥ limit → SIGINT, wait for exit, truncate the
-    working file, restart into the same path. Earlier footage is gone by
-    design.
+    working file, restart into the same path with the same start time.
+    Earlier footage in that file is overwritten by design (this is the only
+    intentional data loss in the system).
 - `stop()` signals SIGINT, waits up to 2 s, kills if needed, then renames the
-  working file to the final name and returns that path.
+  working file to the final name and returns that path. If the working file is
+  missing or zero bytes, it is discarded instead of renamed, and the recorder
+  returns `None`.
 - State callbacks (`recording`, `retrying`, `stopped`, `error`) are marshalled
   to GTK with `GLib.idle_add`.
 - ffmpeg stderr is captured, redacted with `redact_url`, and surfaced only as a
@@ -155,16 +163,24 @@ sorted newest first for the dialog.
   `auto_record` set. Reload stops all recorders first (finalizing files), then
   re-arms auto-start cameras; this is documented in the README.
 - On quit/destroy, stop all recorders so files are finalized and renamed.
+  Stops run concurrently (one thread per recorder, joined with a short total
+  timeout) so reload and quit are not blocked per camera.
 - Status bar lists recording cameras: `REC: Corner, Cam2`. If ffmpeg is
   missing, starting a recording reports that clearly.
 
 ### Per-tile REC indicator
 
 GTK widgets do not reliably draw over mpv's embedded child X window, so the
-indicator is drawn by mpv itself: on record start, send `show-text` with a
-persistent red `● REC` OSD (`duration=0`); on stop, clear it. This uses the
-existing IPC path (`Player.show_osd`). If the camera is offline, the tile
-shows its Offline overlay and the status bar still lists the recording.
+indicator is drawn by mpv itself: `Player` gains `show_osd(text)` /
+`clear_osd()`, sending `show-text` with `duration=0` (persistent) or `""` to
+clear. `app.py` tracks `self.recording_names: set[str]` and calls
+`show_osd("● REC")` / `clear_osd()` on that camera's **display** player
+whenever: a recorder starts or stops, the display player's state callback
+fires `playing` (covers reload, enlarge/collapse reload, and reconnect after
+offline), so the OSD is re-applied any time the display mpv process is
+replaced. If the camera is offline, the tile shows its Offline overlay and the
+status bar still lists the recording; the OSD is reapplied once the player
+reports `playing` again.
 
 ### Recordings dialog (`wyze_view/dialogs/recordings.py`)
 
@@ -200,7 +216,8 @@ Automated:
   preserves the flag on edit.
 - Settings: removed `record_filename` still loads old files without error.
 - Recorder: command construction, truncate-and-restart at the size cap, final
-  rename on stop, retry after an unexpected exit (with a fake process/runner).
+  rename on stop, finalize-and-start-new-file on an unexpected exit (with a
+  fake process/runner), zero-byte stop is discarded not renamed.
 
 Manual smoke:
 
