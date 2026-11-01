@@ -323,7 +323,11 @@ class MainWindow(Gtk.ApplicationWindow):
                 return
             self.reload()
 
-        CameraManagerDialog(self, self.cameras, on_save, start_add=start_add).run()
+        dialog = CameraManagerDialog(
+            self, self.cameras, on_save, start_add=start_add
+        )
+        dialog.run()
+        dialog.destroy()
 
     def _set_status(self, text: str) -> None:
         self.status.set_text(text)
