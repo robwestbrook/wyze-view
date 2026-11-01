@@ -11,7 +11,7 @@ snapshots, and fullscreen.
 Install the packaged build:
 
 ```sh
-sudo dpkg -i wyze-view_0.1.0_all.deb
+sudo dpkg -i wyze-view_0.2.0_all.deb
 sudo apt-get install -f   # pull in any missing dependencies
 ```
 
@@ -20,7 +20,7 @@ Or build the package yourself from a checkout:
 ```sh
 sudo apt install debhelper dh-python pybuild-plugin-pyproject python3-setuptools
 dpkg-buildpackage -b
-sudo dpkg -i ../wyze-view_0.1.0_all.deb
+sudo dpkg -i ../wyze-view_0.2.0_all.deb
 ```
 
 ## Requirements

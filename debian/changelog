@@ -1,3 +1,14 @@
+wyze-view (0.2.0) unstable; urgency=medium
+
+  * Per-camera recording with Record All / Stop All and per-camera
+    auto-record (record = true in cameras.toml).
+  * Rolling size-capped recording files; fixed
+    <name>-<start>_<stop>.mkv naming; recordings browser that plays
+    clips in mpv.
+  * ffmpeg is now a required dependency.
+
+ -- Rob Westbrook <robwestbrook@users.noreply.github.com>  Mon, 02 Nov 2026 09:00:00 -0500
+
 wyze-view (0.1.0) unstable; urgency=medium
 
   * Initial release.

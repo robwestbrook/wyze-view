@@ -12,7 +12,7 @@ from .config import DEFAULT_CONFIG
 from .settings import DEFAULT_SETTINGS, load_settings
 
 APP_ID = "io.github.robwestbrook.WyzeView"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 
 def preferred_backend(session_type: str | None) -> str:
