@@ -47,3 +47,11 @@ def test_invalid_values_are_ignored(tmp_path):
     settings = load_settings(cfg)
     assert settings.grid_columns == 0
     assert settings.window_width == 1600
+
+
+def test_old_file_with_record_filename_key_loads_without_error(tmp_path):
+    cfg = tmp_path / "settings.toml"
+    cfg.write_text('record_filename = "{name}-{date}.mkv"\ngrid_columns = 1\n')
+    settings = load_settings(cfg)
+    assert settings.grid_columns == 1
+    assert not hasattr(settings, "record_filename")
