@@ -66,6 +66,7 @@ class CameraManagerDialog(Gtk.Dialog):
         for camera in self.cameras:
             self.listbox.add(Gtk.Label(label=f"{camera.name}  —  {redact_url(camera.url)}",
                                        xalign=0.0))
+        self.listbox.show_all()
 
     def _selected(self) -> int | None:
         row = self.listbox.get_selected_row()
