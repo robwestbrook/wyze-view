@@ -30,6 +30,7 @@ class Camera:
     name: str
     url: str
     sub_url: str | None = None
+    auto_record: bool = False
 
 
 def _warn(message: str) -> None:
@@ -84,6 +85,7 @@ def load_cameras(path: Path = DEFAULT_CONFIG) -> list[Camera]:
                 name=name,
                 url=url.strip(),
                 sub_url=sub_url.strip() if sub_url else None,
+                auto_record=entry.get("record") is True,
             )
         )
 
@@ -121,6 +123,8 @@ def save_cameras(cameras: list[Camera], path: Path = DEFAULT_CONFIG) -> None:
                   f"url = {json.dumps(camera.url)}"]
         if camera.sub_url:
             lines.append(f"sub_url = {json.dumps(camera.sub_url)}")
+        if camera.auto_record:
+            lines.append("record = true")
         lines.append("")
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text("\n".join(lines))

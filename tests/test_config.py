@@ -142,3 +142,31 @@ def test_test_camera_redacts_credentials(monkeypatch):
     assert ok is False
     assert "secret" not in detail
     assert "***" in detail
+
+
+def test_loads_auto_record_flag_when_true(tmp_path):
+    cfg = tmp_path / "cameras.toml"
+    cfg.write_text(
+        '[[camera]]\nname = "Corner"\nurl = "rtsp://u:p@1.2.3.4/x"\nrecord = true\n'
+    )
+    assert load_cameras(cfg)[0].auto_record is True
+
+
+def test_auto_record_defaults_to_false_when_absent_or_invalid(tmp_path):
+    cfg = tmp_path / "cameras.toml"
+    cfg.write_text(
+        '[[camera]]\nname = "A"\nurl = "rtsp://u:p@1.2.3.4/x"\n'
+        '[[camera]]\nname = "B"\nurl = "rtsp://u:p@1.2.3.5/x"\nrecord = "yes"\n'
+    )
+    cams = load_cameras(cfg)
+    assert [c.auto_record for c in cams] == [False, False]
+
+
+def test_save_cameras_round_trips_auto_record_flag(tmp_path):
+    cfg = tmp_path / "cameras.toml"
+    cams = [
+        Camera("A", "rtsp://u:p@1.2.3.4/x", auto_record=True),
+        Camera("B", "rtsp://u:p@1.2.3.5/x", auto_record=False),
+    ]
+    save_cameras(cams, cfg)
+    assert load_cameras(cfg) == cams
