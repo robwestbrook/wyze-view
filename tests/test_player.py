@@ -267,3 +267,27 @@ def test_info_reads_properties(tmp_path, monkeypatch):
     monkeypatch.setattr("wyze_view.player.ipc_command",
                         lambda sock, cmd, timeout=3.0: values[cmd[1]])
     assert player.info() == {"width": 1920, "height": 1080, "fps": 20.0}
+
+
+def test_show_osd_sends_show_text_with_persistent_duration(tmp_path, monkeypatch):
+    import wyze_view.player as player_module
+
+    cam = Camera("A", "rtsp://u:p@1.2.3.4/x")
+    player = Player(cam, 1, tmp_path / "a.sock")
+    player._proc = types.SimpleNamespace(poll=lambda: None)
+    calls = []
+    monkeypatch.setattr("wyze_view.player.ipc_command",
+                        lambda sock, cmd, timeout=3.0: calls.append(cmd) or {"error": "success"})
+    player.show_osd("● REC")
+    assert calls == [["show-text", "● REC", player_module.OSD_DURATION_MS]]
+
+
+def test_clear_osd_sends_empty_text(tmp_path, monkeypatch):
+    cam = Camera("A", "rtsp://u:p@1.2.3.4/x")
+    player = Player(cam, 1, tmp_path / "a.sock")
+    player._proc = types.SimpleNamespace(poll=lambda: None)
+    calls = []
+    monkeypatch.setattr("wyze_view.player.ipc_command",
+                        lambda sock, cmd, timeout=3.0: calls.append(cmd) or {"error": "success"})
+    player.clear_osd()
+    assert calls[0][:2] == ["show-text", ""]

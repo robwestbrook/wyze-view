@@ -10,6 +10,8 @@ from typing import Callable
 
 from .config import Camera
 
+OSD_DURATION_MS = 3_600_000
+
 
 def build_mpv_args(xid: int, socket_path: Path, url: str, name: str = "") -> list[str]:
     args = [
@@ -188,6 +190,16 @@ class Player:
                 ipc_command(self.socket_path, ["set_property", "volume", float(volume)])
             except (OSError, TimeoutError):
                 pass
+
+    def show_osd(self, text: str) -> None:
+        if self._proc and self._proc.poll() is None:
+            try:
+                ipc_command(self.socket_path, ["show-text", text, OSD_DURATION_MS])
+            except (OSError, TimeoutError):
+                pass
+
+    def clear_osd(self) -> None:
+        self.show_osd("")
 
     def info(self) -> dict:
         result = {"width": 0, "height": 0, "fps": 0.0}
