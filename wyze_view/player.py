@@ -10,6 +10,7 @@ from typing import Callable
 
 from .config import Camera
 
+# shortcut: badge auto-hides after ~1h; app re-asserts on every "playing" state (Task 8 wiring)
 OSD_DURATION_MS = 3_600_000
 
 

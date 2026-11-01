@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import ctypes
+import shutil
 import tempfile
 import threading
+import time
 import tomllib
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +18,7 @@ from gi.repository import Gdk, GdkX11, Gio, GLib, Gtk  # noqa: F401 - registers 
 from .config import Camera, load_cameras
 from .grid import grid_dims, grid_position
 from .player import Player
+from .recorder import Recorder
 from .util import redact_url, sanitize_name, snapshot_path
 
 CSS = b"""
@@ -131,9 +134,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.selected = 0
         self.enlarged: str | None = None
         self.enlarged_muted = False
-        self.recording: str | None = None
-        self._recording_path: Path | None = None
-        self._recording_timer: int | None = None
+        self.recorders: dict[str, Recorder] = {}
         self._tmp = tempfile.TemporaryDirectory(prefix="wyze-view-")
         self._xdisplay = _X11.XOpenDisplay(None)
         self._ignored_children: dict[int, int] = {}
@@ -221,6 +222,8 @@ class MainWindow(Gtk.ApplicationWindow):
         camera_menu = Gtk.Menu()
         camera_menu.append(self._menu_item("Snapshot", "snapshot"))
         camera_menu.append(self._menu_item("Record", "record"))
+        camera_menu.append(self._menu_item("Record All", "record-all"))
+        camera_menu.append(self._menu_item("Stop All", "stop-all"))
         camera_menu.append(self._menu_item("Mute", "mute"))
         camera_item.set_submenu(camera_menu)
         bar.append(camera_item)
@@ -258,6 +261,14 @@ class MainWindow(Gtk.ApplicationWindow):
             self.get_application().set_accels_for_action(
                 f"win.{name}", [accel if len(accel) > 1 else f"<Primary>{accel}"]
             )
+
+        for name, handler in (
+            ("record-all", lambda *_: self.record_all()),
+            ("stop-all", lambda *_: self.stop_all()),
+        ):
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", handler)
+            self.add_action(action)
 
         action = Gio.SimpleAction.new("manage-cameras", None)
         action.connect("activate", lambda *_: self._manage_cameras())
@@ -344,9 +355,10 @@ class MainWindow(Gtk.ApplicationWindow):
         if self.cameras:
             parts.append(f"selected: {self.cameras[self.selected].name}")
         parts.append(f"audio: {audio}")
-        if self.recording:
-            parts.append(f"REC: {self.recording}")
+        if self.recorders:
+            parts.append("REC: " + ", ".join(sorted(self.recorders)))
         self._set_status(" · ".join(parts))
+        self._sync_record_button()
 
     def _set_offline(self, name: str, offline: bool) -> None:
         if offline:
@@ -376,6 +388,7 @@ class MainWindow(Gtk.ApplicationWindow):
         if self._torn_down:
             return
         self._torn_down = True
+        self._stop_all_recorders_blocking()
         for player in self.players.values():
             player.stop()
         self.players.clear()
@@ -401,20 +414,8 @@ class MainWindow(Gtk.ApplicationWindow):
             self._set_status(f"Config error: {exc}")
             return
 
-        if self.recording and self._recording_path:
-            try:
-                player = self.players.get(self.recording)
-                if player:
-                    player.stop_recording()
-            except Exception:
-                pass
-            if self._recording_timer is not None:
-                GLib.source_remove(self._recording_timer)
-                self._recording_timer = None
-            self.recording = None
-            self._recording_path = None
-            if hasattr(self, "record_button"):
-                self.record_button.set_active(False)
+        for name in list(self.recorders):
+            self._stop_recording(name)
         for player in self.players.values():
             player.stop()
         self.players.clear()
@@ -461,6 +462,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self._layout()
         self.show_all()
         GLib.idle_add(self._start_players)
+        for camera in self.cameras:
+            if camera.auto_record:
+                self._start_recording(camera.name)
         self._update_status()
 
     def _on_fixed_allocate(self, _widget, allocation) -> bool:
@@ -550,6 +554,8 @@ class MainWindow(Gtk.ApplicationWindow):
         elif state == "playing":
             self._set_offline(name, False)
             player = self.players[name]
+            if name in self.recorders:
+                player.show_osd("● REC")
             if self.enlarged:
                 if name == self.enlarged:
                     if not self.enlarged_muted:
@@ -678,153 +684,109 @@ class MainWindow(Gtk.ApplicationWindow):
         self._set_status(f"Saved {path}")
         self._show_snapshot_result("Snapshot saved", str(path), directory)
 
-    def _record_path(self, name: str) -> Path:
-        directory = getattr(self.settings, "record_dir", None) or self.settings.snapshot_dir
-        directory.mkdir(parents=True, exist_ok=True)
-        from .util import sanitize_name
-
-        now = datetime.now()
-        template = getattr(self.settings, "record_filename", "{name}-{date}.mkv") or "{name}-{date}.mkv"
-        try:
-            fname = template.format(
-                name=sanitize_name(name),
-                date=now.strftime("%Y%m%d"),
-                time=now.strftime("%H%M%S"),
-                datetime=now.strftime("%Y%m%d-%H%M%S"),
-            )
-        except Exception:
-            fname = f"{sanitize_name(name)}-{now.strftime('%Y%m%d-%H%M%S')}.mkv"
-        if not fname.lower().endswith((".mkv", ".mp4", ".ts")):
-            fname += ".mkv"
-        return directory / fname
-
-    def _oldest_recording(self, name: str) -> Path | None:
-        directory = getattr(self.settings, "record_dir", None) or self.settings.snapshot_dir
-        from .util import sanitize_name
-        pattern = f"{sanitize_name(name)}-*"
-        try:
-            files = []
-            for p in directory.glob(pattern):
-                if p.is_file():
-                    files.append((p.stat().st_mtime, p))
-            if not files:
-                return None
-            files.sort()
-            return files[0][1]
-        except Exception:
-            return None
-
-    def _check_record_size(self) -> bool:
-        if not self.recording or not self._recording_path:
-            return False
-        max_mb = int(getattr(self.settings, "record_max_size_mb", 0) or 0)
-        if max_mb <= 0:
-            return True
-        try:
-            if self._recording_path.exists():
-                size_mb = self._recording_path.stat().st_size / (1024 * 1024)
-                if size_mb >= max_mb:
-                    target = self.recording
-                    oldest = self._oldest_recording(target)
-                    if oldest and oldest != self._recording_path:
-                        try:
-                            oldest.unlink()
-                        except Exception:
-                            pass
-                    self._rotate_recording(target)
-                    return True
-        except Exception:
-            pass
-        return True
-
-    def _rotate_recording(self, name: str) -> None:
-        player = self.players.get(name)
-        if not player:
-            self._stop_recording()
-            return
-        try:
-            player.stop_recording()
-        except Exception:
-            pass
-        path = self._record_path(name)
-        try:
-            player.start_recording(path)
-        except Exception as exc:
-            self._set_status(f"Record failed: {exc}")
-            self._stop_recording()
-            return
-        self.recording = name
-        self._recording_path = path
-        self._update_status()
-        self._set_status(f"Recording to {path}")
-
     def toggle_record(self, name: str | None = None) -> None:
         target = name or self.enlarged or (self.cameras[self.selected].name if self.cameras else None)
         if not target:
             self._set_status("No camera to record")
             return
-        if self.recording == target:
-            self._stop_recording()
-            return
-        if self.recording:
-            self._stop_recording()
-        player = self.players.get(target)
-        if not player:
-            self._set_status("Camera not ready")
-            return
-        path = self._record_path(target)
-        try:
-            player.start_recording(path)
-        except Exception as exc:
-            self._set_status(f"Record failed: {exc}")
-            return
-        self.recording = target
-        self._recording_path = path
-        if self._recording_timer is not None:
-            try:
-                GLib.source_remove(self._recording_timer)
-            except Exception:
-                pass
-        self._recording_timer = GLib.timeout_add(1000, self._check_record_size)
-        if hasattr(self, "record_button"):
-            self.record_button.set_active(True)
-            ctx = self.record_button.get_style_context()
-            ctx.add_class("recording")
-        self._update_status()
-        self._set_status(f"REC ● {target} → {path}")
+        if target in self.recorders:
+            self._stop_recording(target)
+        else:
+            self._start_recording(target)
 
-    def _stop_recording(self) -> None:
-        if not self.recording:
+    def record_all(self) -> None:
+        for camera in self.cameras:
+            self._start_recording(camera.name)
+        self._sync_record_button()
+
+    def stop_all(self) -> None:
+        for name in list(self.recorders):
+            self._stop_recording(name)
+        self._sync_record_button()
+
+    def _start_recording(self, name: str) -> None:
+        if name in self.recorders:
             return
-        player = self.players.get(self.recording)
+        camera = next((c for c in self.cameras if c.name == name), None)
+        if camera is None:
+            return
+        if shutil.which("ffmpeg") is None:
+            self._set_status(
+                "ffmpeg is required to record — install it with: sudo apt install ffmpeg"
+            )
+            return
+        # on_state runs while the Recorder's internal lock is held: it may only
+        # idle_add here; calling Recorder methods synchronously self-deadlocks.
+        recorder = Recorder(
+            camera,
+            self.settings.record_dir,
+            self.settings.record_max_size_mb,
+            on_state=lambda state, name=name: GLib.idle_add(
+                self._on_recorder_state, name, state
+            ),
+        )
+        recorder.start()
+        self.recorders[name] = recorder
+        player = self.players.get(name)
+        if player and player.state == "playing":
+            player.show_osd("● REC")
+
+    def _stop_recording(self, name: str) -> None:
+        recorder = self.recorders.pop(name, None)
+        if recorder is None:
+            return
+        player = self.players.get(name)
         if player:
-            try:
-                player.stop_recording()
-            except Exception:
-                pass
-        if self._recording_timer is not None:
-            try:
-                GLib.source_remove(self._recording_timer)
-            except Exception:
-                pass
-            self._recording_timer = None
-        path = self._recording_path
-        self.recording = None
-        self._recording_path = None
-        if hasattr(self, "record_button"):
-            self.record_button.set_active(False)
-            ctx = self.record_button.get_style_context()
-            ctx.remove_class("recording")
+            player.clear_osd()
+        directory = self.settings.record_dir
+
+        def finish() -> None:
+            path = recorder.stop()  # blocks up to a few seconds
+            if path is not None:
+                GLib.idle_add(self._show_record_result, str(path), directory)
+
+        threading.Thread(target=finish, daemon=True).start()
+
+    def _stop_all_recorders_blocking(self, timeout: float = 5.0) -> None:
+        # Quit path: a daemon thread can be killed mid-rename when the process
+        # exits, so use non-daemon threads and wait for every recorder to
+        # finalize, bounded by `timeout` overall regardless of camera count.
+        recorders = list(self.recorders.items())
+        self.recorders.clear()
+        threads = []
+        for name, recorder in recorders:
+            player = self.players.get(name)
+            if player:
+                player.clear_osd()
+            thread = threading.Thread(target=recorder.stop)
+            thread.start()
+            threads.append(thread)
+        deadline = time.monotonic() + timeout
+        for thread in threads:
+            thread.join(max(deadline - time.monotonic(), 0))
+
+    def _on_recorder_state(self, name: str, state: str) -> bool:
+        if self._torn_down:
+            return False  # quit race: recorder finalized after teardown
         self._update_status()
-        if path:
-            self._set_status(f"Saved {path}")
-            GLib.idle_add(self._show_record_result, str(path), self.settings.record_dir)
+        if state == "error":
+            self._set_status(f"{name}: recording error")
+        self._sync_record_button()
+        return False
+
+    def _sync_record_button(self) -> None:
+        target = self.enlarged or (
+            self.cameras[self.selected].name if self.cameras else None
+        )
+        self.record_button.handler_block_by_func(self._on_record_toggled)
+        self.record_button.set_active(target in self.recorders)
+        self.record_button.handler_unblock_by_func(self._on_record_toggled)
 
     def _on_record_toggled(self, button) -> None:
-        if button.get_active():
-            self.toggle_record()
-        else:
-            self._stop_recording()
+        # toggle_record decides start vs. stop from self.recorders membership;
+        # other entry points (T key, menus, auto-start) can move state without
+        # the button, so _sync_record_button keeps it truthful afterwards.
+        self.toggle_record()
 
     def _show_snapshot_result(self, title: str, detail: str, folder) -> None:
         dialog = Gtk.MessageDialog(
