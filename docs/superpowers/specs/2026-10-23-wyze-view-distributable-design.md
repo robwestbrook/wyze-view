@@ -1,7 +1,7 @@
 # Wyze View — Distributable Desktop App Design
 
 Date: 2026-10-23
-Status: Approved design, pending spec review
+Status: Shipped in 0.1.0-0.2.0
 Builds on: `2026-10-23-wyze-view-design.md` (the working single-window app)
 
 ## Goal

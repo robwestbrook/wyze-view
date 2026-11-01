@@ -1,7 +1,7 @@
 # Wyze View — Live Camera Multi-View Design
 
 Date: 2026-10-23
-Status: Approved design, pending spec review
+Status: Shipped in 0.1.0; superseded by 2026-10-23-wyze-view-distributable-design.md
 
 ## Goal
 

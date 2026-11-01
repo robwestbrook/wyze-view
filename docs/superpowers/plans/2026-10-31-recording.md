@@ -2,6 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: COMPLETE.** All 10 tasks implemented, reviewed, and merged to `main` (2026-11-02, commits 81e1be1..4645bec); shipped as 0.2.0. Deferred follow-ups are listed in README "Project status".
+
+
 **Goal:** Replace the single-camera, display-player-tied recording with a
 dedicated-ffmpeg recorder per camera, supporting one-camera, all-camera, and
 per-camera auto-start recording, a fixed start/stop filename, rolling

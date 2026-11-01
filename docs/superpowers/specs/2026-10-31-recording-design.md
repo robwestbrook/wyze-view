@@ -1,7 +1,7 @@
 # Wyze View — Multi-Camera Recording Design
 
 Date: 2026-10-31
-Status: Draft for review
+Status: Implemented and shipped in 0.2.0 (2026-11-02)
 Builds on: `2026-10-23-wyze-view-design.md` and
 `2026-10-23-wyze-view-distributable-design.md`
 

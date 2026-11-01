@@ -108,6 +108,37 @@ camera is unreachable.
 | `Arrows` / `Enter` | Select and enlarge a tile |
 | `Esc` | Return to the grid / leave fullscreen |
 
+## Project status
+
+**Current: 0.2.0** (2026-11-02) — live multi-camera recording. Shipped through
+the spec → plan → subagent-driven implementation process; all artifacts are
+under `docs/superpowers/`.
+
+- 0.1.0 — initial release: grid, enlarge, snapshots, camera manager,
+  preferences, `.deb` packaging.
+- 0.2.0 — per-camera / all-camera / auto-record, rolling size-capped files,
+  Recordings browser (mpv playback), ffmpeg required.
+
+Verified so far: 75 pytest tests; Xvfb integration drivers for the recorder
+engine, main-window wiring, and both dialogs. **Not yet verified against real
+hardware:** a first real recording on your cameras should confirm clean
+Matroska finalization on stop/retry and the 60 s REC-badge re-assertion.
+
+Open follow-ups (ruled deferrable at final review, smallest first):
+- ffmpeg has no RTSP stall timeout, so a frozen camera stream may hang a
+  recording instead of retrying — needs the right flag for the ffmpeg you
+  ship (`-timeout` vs `rw_timeout`) plus one manual stall test.
+- Recordings folder uses default mkdir modes; switch to 0700 if these are
+  security footage you don't want group-readable.
+- Dead code: `Player.start_recording`/`stop_recording` (old mpv path), the
+  `.recording` CSS provider, a redundant `_sync_record_button` call.
+- `stop_all`/reload show one "Recording saved" dialog per camera — should
+  aggregate.
+- Recorder: kill-escalation exists at stop, but no backoff reset after
+  sustained uptime, and `start()` can raise if the recordings dir is
+  uncreatable.
+- README still wants a screenshot (`docs/screenshot.png`).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
