@@ -206,6 +206,7 @@ class MainWindow(Gtk.ApplicationWindow):
         file_menu.append(self._menu_item("Add Camera…", "add-camera"))
         file_menu.append(self._menu_item("Manage Cameras…", "manage-cameras"))
         file_menu.append(self._menu_item("Reload", "reload"))
+        file_menu.append(self._menu_item("Recordings…", "recordings"))
         file_menu.append(Gtk.SeparatorMenuItem())
         file_menu.append(self._menu_item("Preferences", "preferences"))
         file_menu.append(self._menu_item("Quit", "app.quit"))
@@ -265,6 +266,7 @@ class MainWindow(Gtk.ApplicationWindow):
         for name, handler in (
             ("record-all", lambda *_: self.record_all()),
             ("stop-all", lambda *_: self.stop_all()),
+            ("recordings", lambda *_: self._recordings()),
         ):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
@@ -320,6 +322,11 @@ class MainWindow(Gtk.ApplicationWindow):
             self._layout()
 
         PreferencesDialog(self, self.settings, on_save).run_and_save()
+
+    def _recordings(self) -> None:
+        from .dialogs.recordings import RecordingsDialog
+
+        RecordingsDialog(self, self.settings.record_dir).run_and_destroy()
 
     def _manage_cameras(self, start_add: bool = False) -> None:
         from .dialogs.camera_manager import CameraManagerDialog
