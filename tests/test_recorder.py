@@ -251,7 +251,9 @@ def test_size_cap_restarts_into_same_working_file_without_renaming(tmp_path, mon
             self.returncode = None
             self.path = path
             # First proc overshoots the 1 MB cap; the respawn stays under it.
-            Path(path).write_bytes(b"x" * (2 * 1024 * 1024) if not spawned else b"x")
+            file = Path(path)
+            self.size_at_spawn = file.stat().st_size if file.exists() else 0
+            file.write_bytes(b"x" * (2 * 1024 * 1024) if not spawned else b"x")
 
         def poll(self):
             return self.returncode
@@ -283,7 +285,7 @@ def test_size_cap_restarts_into_same_working_file_without_renaming(tmp_path, mon
     assert signals[0] == signal.SIGINT
     assert len(spawned) == 2
     assert spawned[0].path == spawned[1].path  # same working file, not renamed
-    assert Path(spawned[1].path).read_bytes() == b"x"  # truncated before respawn
+    assert spawned[1].size_at_spawn == 0  # recorder truncated before respawning
     files = list(tmp_path.iterdir())
     assert len(files) == 1
     assert files[0].name.startswith(".")
@@ -368,3 +370,115 @@ def test_unexpected_exit_finalizes_segment_and_starts_a_new_one(tmp_path, monkey
 
     assert recorder.stop() is not None
     assert recorder.state == "stopped"
+
+
+def test_stop_appends_numeric_suffix_when_final_name_exists(tmp_path, monkeypatch):
+    import wyze_view.recorder as recorder_module
+
+    fixed = datetime(2026, 10, 31, 21, 15, 0)
+    monkeypatch.setattr(
+        recorder_module,
+        "datetime",
+        types.SimpleNamespace(now=lambda: fixed),
+    )
+
+    class FakeProc:
+        returncode = None
+        def __init__(self, path):
+            Path(path).write_bytes(b"data")
+        def poll(self): return self.returncode
+        def wait(self, timeout=None):
+            self.returncode = 0
+            return 0
+        def send_signal(self, sig): pass
+
+    monkeypatch.setattr(
+        recorder_module.subprocess, "Popen",
+        lambda args, **kwargs: FakeProc(args[-1]),
+    )
+    monkeypatch.setattr(recorder_module.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+
+    collision = tmp_path / record_filename("Corner", fixed, fixed)
+    collision.write_bytes(b"older")
+
+    camera = Camera("Corner", "rtsp://u:p@1.2.3.4/x")
+    recorder = Recorder(camera, tmp_path)
+    recorder.start()
+    final = recorder.stop()
+
+    assert final is not None
+    assert final.name == record_filename("Corner", fixed, fixed)[:-4] + "-2.mkv"
+    assert final.read_bytes() == b"data"
+    assert collision.read_bytes() == b"older"  # never overwritten
+
+
+def test_watcher_records_redacted_ffmpeg_stderr_in_last_error(tmp_path, monkeypatch):
+    import wyze_view.recorder as recorder_module
+
+    spawned = []
+    in_backoff = threading.Event()
+    release_backoff = threading.Event()
+    real_sleep = time.sleep
+
+    read_fd, write_fd = os.pipe()
+    with os.fdopen(write_fd, "wb") as writer:
+        writer.write(b"[rtsp @ 0] rtsp://user:secret@1.2.3.4/x: Connection refused\n")
+    # Closing the writer gives the watcher EOF after the line; read_fd stays
+    # attached to the fake proc's stderr.
+
+    class FakeProc:
+        def __init__(self, crash):
+            self.returncode = None
+            self._crash = crash
+            self.stderr = (
+                types.SimpleNamespace(fileno=lambda: read_fd) if crash else None
+            )
+
+        def poll(self):
+            if self._crash:
+                self.returncode = 1  # dies on the watcher's first poll
+            return self.returncode
+
+        def wait(self, timeout=None):
+            self.returncode = 0
+            return 0
+
+        def send_signal(self, sig):
+            self.returncode = 0
+
+    def fake_popen(args, **kwargs):
+        proc = FakeProc(crash=not spawned)
+        spawned.append(proc)
+        return proc
+
+    def fake_sleep(delay):
+        if delay == 999:
+            in_backoff.set()
+            release_backoff.wait(5)
+            return
+        real_sleep(delay)
+
+    monkeypatch.setattr(recorder_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(recorder_module.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(recorder_module, "_POLL_INTERVAL_S", 0.01)
+    monkeypatch.setattr(recorder_module, "backoff_delay", lambda attempt: 999)
+    monkeypatch.setattr(
+        recorder_module,
+        "time",
+        types.SimpleNamespace(sleep=fake_sleep, monotonic=time.monotonic),
+    )
+
+    camera = Camera("Corner", "rtsp://u:p@1.2.3.4/x")
+    recorder = Recorder(camera, tmp_path)
+    recorder.start()
+    assert in_backoff.wait(2)  # crash path drained stderr before retrying
+
+    assert "secret" not in recorder.last_error
+    assert "rtsp://***@1.2.3.4/x: Connection refused" in recorder.last_error
+
+    release_backoff.set()
+    deadline = time.monotonic() + 2
+    while len(spawned) < 2 and time.monotonic() < deadline:
+        real_sleep(0.01)
+    assert recorder.stop() is None  # the respawned fake never wrote a file
+    os.close(read_fd)

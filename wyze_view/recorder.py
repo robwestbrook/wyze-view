@@ -112,9 +112,13 @@ class Recorder:
         threading.Thread(target=self._watch, args=(generation,), daemon=True).start()
 
     def stop(self) -> Path | None:
-        self._generation += 1
-        proc = self._proc
-        self._proc = None
+        # Bump and take over the process atomically: a watcher holding the lock
+        # re-checks the generation there, so it either breaks before spawning
+        # or stop() sees and signals the watcher's new process.
+        with self._lock:
+            self._generation += 1
+            proc = self._proc
+            self._proc = None
         if proc is not None and proc.poll() is None:
             self._signal_stop(proc)
             self._drain_stderr(proc)
@@ -172,47 +176,55 @@ class Recorder:
 
     def _handle_exit(self, generation: int) -> bool:
         with self._lock:
+            if generation != self._generation:
+                return False  # stop() owns finalization and the stopped state
             self._finalize_locked()
-        self._set_state("retrying")
+            self._set_state("retrying")
         time.sleep(backoff_delay(self._attempt))
-        if generation != self._generation:
-            return False
-        self._attempt += 1
-        try:
-            self._begin_segment()
-        except OSError as exc:
-            self.last_error = redact_url(str(exc))
-            self._set_state("error")
-            return False
+        with self._lock:
+            if generation != self._generation:
+                return False
+            self._attempt += 1
+            try:
+                self._begin_segment()
+            except OSError as exc:
+                self.last_error = redact_url(str(exc))
+                self._set_state("error")
+                return False
         return True
 
     def _size_exceeded(self) -> bool:
-        if self.max_size_mb <= 0 or self._work_path is None:
+        work = self._work_path
+        if self.max_size_mb <= 0 or work is None:
             return False
         try:
-            return self._work_path.stat().st_size >= self.max_size_mb * 1024 * 1024
+            return work.stat().st_size >= self.max_size_mb * 1024 * 1024
         except OSError:
             return False
 
     def _restart_for_size_cap(self, generation: int) -> None:
         proc = self._proc
         if proc is not None and proc.poll() is None:
-            self._signal_stop(proc)
+            self._signal_stop(proc)  # outside the lock: waits up to _STOP_WAIT_S
             self._drain_stderr(proc)
-        if self._work_path is None:
-            return
-        # Truncate ourselves rather than relying on ffmpeg -y to overwrite.
-        try:
-            self._work_path.write_bytes(b"")
-        except OSError:
-            pass
-        if generation != self._generation:
-            return
-        try:
-            self._spawn(self._work_path)
-        except OSError as exc:
-            self.last_error = redact_url(str(exc))
-            self._set_state("error")
+        # Truncate + respawn + _proc assignment are atomic against stop()'s
+        # bump + takeover, so stop() either sees the old file untouched or
+        # signals the respawned process — never truncates a finalized segment.
+        with self._lock:
+            if generation != self._generation:
+                return
+            work = self._work_path
+            if work is None:
+                return
+            try:
+                work.write_bytes(b"")  # truncate, not ffmpeg -y
+            except OSError:
+                pass
+            try:
+                self._spawn(work)
+            except OSError as exc:
+                self.last_error = redact_url(str(exc))
+                self._set_state("error")
 
     def _finalize_locked(self) -> Path | None:
         path, start = self._work_path, self._segment_start
