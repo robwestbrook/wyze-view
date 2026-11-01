@@ -64,7 +64,8 @@ class CameraManagerDialog(Gtk.Dialog):
         for child in self.listbox.get_children():
             self.listbox.remove(child)
         for camera in self.cameras:
-            self.listbox.add(Gtk.Label(label=f"{camera.name}  —  {redact_url(camera.url)}",
+            marker = "  [auto]" if camera.auto_record else ""
+            self.listbox.add(Gtk.Label(label=f"{camera.name}  —  {redact_url(camera.url)}{marker}",
                                        xalign=0.0))
         self.listbox.show_all()
 
@@ -102,11 +103,15 @@ class CameraManagerDialog(Gtk.Dialog):
         entries["name"] = name_entry
         grid.attach(name_entry, 1, 0, 1, 1)
 
+        record_check = Gtk.CheckButton(label="Record automatically")
+        record_check.set_active(index is not None and self.cameras[index].auto_record)
+        grid.attach(record_check, 0, 1, 2, 1)
+
         full_check = Gtk.CheckButton(label="Paste a full URL instead")
-        grid.attach(full_check, 0, 1, 2, 1)
+        grid.attach(full_check, 0, 2, 2, 1)
 
         compose_widgets: list[Gtk.Widget] = []
-        row = 2
+        row = 3
         for field in ("host", "port", "user", "password", "path", "sub_path"):
             widget_label = Gtk.Label(label=labels[field], xalign=0.0)
             grid.attach(widget_label, 0, row, 1, 1)
@@ -179,9 +184,10 @@ class CameraManagerDialog(Gtk.Dialog):
                 if not url:
                     result.set_text("Main URL is required")
                     continue
-                camera = Camera(name, url, sub_url_entry.get_text().strip() or None)
+                camera = Camera(name, url, sub_url_entry.get_text().strip() or None,
+                                record_check.get_active())
             else:
-                camera = self._camera_from(entries, name)
+                camera = self._camera_from(entries, name, record_check.get_active())
                 if camera is None:
                     result.set_text("Host is required")
                     continue
@@ -222,7 +228,8 @@ class CameraManagerDialog(Gtk.Dialog):
             "sub_url": camera.sub_url or "",
         }
 
-    def _camera_from(self, entries: dict[str, Gtk.Entry], name: str) -> Camera | None:
+    def _camera_from(self, entries: dict[str, Gtk.Entry], name: str,
+                     auto_record: bool) -> Camera | None:
         values = {field: entry.get_text() for field, entry in entries.items()}
         if not values["host"].strip():
             return None
@@ -236,7 +243,7 @@ class CameraManagerDialog(Gtk.Dialog):
         if values["sub_path"].strip():
             sub_url = compose_rtsp_url(values["host"].strip(), port, values["user"],
                                        values["password"], values["sub_path"])
-        return Camera(name, url, sub_url)
+        return Camera(name, url, sub_url, auto_record)
 
     def _remove(self) -> None:
         index = self._selected()
