@@ -100,7 +100,7 @@ camera is unreachable.
 | `R` | Reload cameras |
 | `S` | Snapshot |
 | `M` | Mute the enlarged camera |
-| `Ctrl+T` | Record / stop the enlarged camera |
+| `T` | Record / stop the enlarged camera |
 | `F11` | Fullscreen |
 | `Ctrl+N` | Manage cameras |
 | `Ctrl+P` | Preferences |
